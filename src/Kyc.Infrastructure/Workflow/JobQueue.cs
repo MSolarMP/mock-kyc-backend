@@ -12,7 +12,7 @@ public static class JobQueue
 {
     /// <summary>
     /// Adds a job to the change tracker. It commits with whatever <c>SaveChanges</c> persists the state change
-    /// that caused it (transactional outbox for commands).
+    /// that caused it (this table is our transactional outbox).
     /// </summary>
     public static WorkflowJob Enqueue(this KycDbContext db, Guid sessionId, JobType type, object payload,
         string? correlationId, DateTimeOffset now)

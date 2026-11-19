@@ -14,7 +14,7 @@ namespace Kyc.IntegrationTests;
 
 /// <summary>
 /// Real Postgres + real S3-compatible storage (SeaweedFS) in containers, with the full app (API + worker roles)
-/// running in-process. Nothing is mocked except the KYC vendors, which are mocked in the product itself.
+/// running in-process. Nothing is mocked; KYC vendors are Vendor A's sandbox client, which is part of the product.
 /// </summary>
 public sealed class KycApiFixture : IAsyncLifetime
 {

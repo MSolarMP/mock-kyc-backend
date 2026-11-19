@@ -5,7 +5,6 @@ public static class AuditEventTypes
 {
     public const string SessionCreated = "session.created";
     public const string StatusChanged = "session.status_changed";
-    public const string SessionViewed = "session.viewed";
     public const string HandoffIssued = "handoff.issued";
     public const string HandoffRedeemed = "handoff.redeemed";
     public const string HandoffRedeemFailed = "handoff.redeem_failed";

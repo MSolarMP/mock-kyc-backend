@@ -53,7 +53,7 @@ public static class ProviderResilience
     }
 }
 
-/// <summary>Decorators that add the resilience pipeline around any adapter (mock or real).</summary>
+/// <summary>Decorators that add the resilience pipeline around any vendor adapter.</summary>
 public sealed class ResilientDocumentProvider(IDocumentVerificationProvider inner, ResiliencePipeline pipeline)
     : IDocumentVerificationProvider
 {

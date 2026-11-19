@@ -40,7 +40,8 @@ public class DecisionEngineTests
     public void Rejects_spoofed_liveness()
     {
         var result = _engine.Decide(Input(live: new CheckSummary(CheckOutcome.Failed, 0.05m, []), face: null)
-            with { FaceMatch = null });
+            with
+        { FaceMatch = null });
         Assert.Equal(DecisionOutcome.Rejected, result.Outcome);
         Assert.Contains(ReasonCodes.LivenessFailed, result.ReasonCodes);
     }

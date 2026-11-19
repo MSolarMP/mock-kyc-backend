@@ -46,7 +46,7 @@ function Invoke-Api {
     }
 }
 
-# Fake image: a JPEG header plus optional mock markers (the way vendor sandboxes use magic test images).
+# Fake image: a JPEG header plus optional sandbox markers (the way vendor sandboxes use magic test images).
 function New-TestImage([string[]]$Markers, [string]$Salt) {
     $text = "KYC test image $Salt " + (($Markers | ForEach-Object { "KYC_MOCK:$_" }) -join " ")
     $header = [byte[]](0xFF, 0xD8, 0xFF, 0xE0)

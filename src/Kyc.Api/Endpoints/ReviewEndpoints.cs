@@ -68,7 +68,9 @@ public static partial class ReviewEndpoints
             .Take(take)
             .Select(s => new
             {
-                s.Id, s.ApplicantReference, s.UpdatedAt,
+                s.Id,
+                s.ApplicantReference,
+                s.UpdatedAt,
                 Decision = s.Decisions.OrderByDescending(d => d.DecidedAt).FirstOrDefault(),
             })
             .ToListAsync(ct);

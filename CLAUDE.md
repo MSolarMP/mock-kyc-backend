@@ -2,11 +2,9 @@
 
 Context for Claude Code (and humans) picking this repo up mid-flight. Read this first.
 
-> **2026-11-19: design walkthrough in progress.** The repo was too code-heavy for a 3–5h assessment. We are going through
-> the design step by step with the user and recording each decision in **`docs/DECISIONS.md`** (status table, reasoning,
-> change checklist). **Where this file and DECISIONS.md conflict, DECISIONS.md wins** (e.g. outbox removed, partners table,
-> reviewer via partner key + reviewerId, QR PNG dropped, mocks restructured as "Vendor A"). Don't trim or rewrite code until
-> step 11 (keep or cut) is agreed. Commit the current full version to a branch before trimming.
+> **Design decisions live in `docs/DECISIONS.md`** (agreed with the user in an 11-step walkthrough on 2026-11-19: options,
+> reasoning, what's built vs only designed). Where this file and DECISIONS.md disagree, DECISIONS.md wins. The user is new
+> to the KYC domain and wants to understand and defend every decision: explain options and trade-offs, then let them decide.
 
 ## What this is
 Senior Backend Engineer take-home: design and build the backend for a digital KYC verification platform.
@@ -24,34 +22,48 @@ Deliverables: (1) source repo, (2) README (setup, assumptions, trade-offs, known
 - **Postgres** for everything durable. **SeaweedFS** (S3-compatible) for images locally. MinIO was dropped because it no longer
   publishes free Docker images (pulls fail). The app only speaks the S3 API (AWSSDK.S3), so prod = AWS S3. **No separate message broker** for now:
   the workflow queue is a Postgres `workflow_jobs` table claimed with `FOR UPDATE SKIP LOCKED` (leases + retries + dead letter).
-  The architecture doc explains the move to SQS/RabbitMQ/Kafka as volume grows.
+  The job table doubles as the transactional outbox. The architecture doc explains the move to a broker (outbox -> RabbitMQ/SQS
+  for outward events: "a queue for commands, a broker for events") as volume grows.
 - **Uploads use pre-signed URLs**: the client PUTs straight to object storage and the API never streams image bytes.
   Flow: `POST /v1/client/session/artifacts` (declare type/contentType/size/sha256) → PUT to `uploadUrl` →
   `POST .../artifacts/{id}/complete` (API checks size with HEAD; worker re-hashes before vendors see it).
-- **QR handoff**: desktop calls `POST /v1/client/session/handoff`, which returns a single-use token with a 5-minute TTL, carried in the URL **fragment** (`#token=`) so it isn't sent to servers or logs, plus a QR PNG (base64).
+- **QR handoff**: desktop calls `POST /v1/client/session/handoff`, which returns a single-use token with a 5-minute TTL, carried in the URL **fragment** (`#token=`) so it isn't sent to servers or logs. The front end renders the URL as a QR code (no server-side PNG).
   Mobile calls `POST /v1/handoff/redeem`, which consumes the token atomically and issues a **new** session access token for that device. Both devices stay valid.
-- **Auth**: partner/back-office systems use `X-Api-Key` (roles `partner`, `reviewer`). Customers use an opaque Bearer session token
-  (hash stored, revocable). The session id is **derived from the token**, so customer routes have no `{id}` (no IDOR).
-- **Vendors are mocked** behind `IDocumentVerificationProvider`, `ILivenessProvider`, `IFaceMatchProvider`. Scenarios are driven by ASCII
-  markers inside the uploaded file (like vendor sandbox test images), e.g. `KYC_MOCK:DOC_TAMPERED`, `KYC_MOCK:FACE_WEAK`,
-  `KYC_MOCK:PROVIDER_FLAKY`, `KYC_MOCK:PROVIDER_DOWN`. No marker means a pass.
+- **Multi-tenant**: each bank is a row in `partners` (keys hashed in `partner_api_keys`, several per partner for rotation,
+  per-partner `image_retention_days`). Dev/test partners are seeded from config `Partners:Seed` (`dev-partner-key`).
+- **Auth**: partners use `X-Api-Key`. **Reviewers act through their partner's back office**: partner key + `X-Reviewer-Id`
+  (a staff id, not an email); audited as `reviewer:<id> via partner:<id>`; partners only see/review their own sessions (404 otherwise).
+  Customers use an opaque Bearer session token (hash stored, revocable). The session id is **derived from the token**, so customer
+  routes have no `{id}` (no IDOR).
+- **Vendor A (mocked) behind an adapter**: `Providers/VendorA/` has `SandboxVendorAClient` (answers in Vendor A's own format:
+  `clear/consider/unidentified/rejected`, scores 0-100, its sub-check names, HTTP errors) and `VendorAAdapter`, which maps that onto
+  our contracts (`IDocumentVerificationProvider`, `ILivenessProvider`, `IFaceMatchProvider`). Decision thresholds live in
+  `Providers:VendorA:Thresholds` (per vendor). Replacing the vendor = new adapter folder + config. Sandbox scenarios are ASCII markers in
+  the uploaded file, e.g. `KYC_MOCK:DOC_TAMPERED`, `FACE_WEAK`, `PROVIDER_FLAKY` (504 once), `PROVIDER_DOWN` (503),
+  `PROVIDER_MISCONFIGURED` (401, permanent). No marker means a pass.
+- **Vendor failures**: 408/429/5xx -> `TransientProviderException` -> durable job retry with backoff; other 4xx ->
+  `PermanentProviderException` -> dead-lettered immediately. Polly adds a timeout + circuit breaker per capability.
 - **Outcomes**: Approved / Rejected / ManualReview. Reviewers decide through `POST /v1/reviews/{sessionId}/decision`.
   Provider outage after all retries goes to **ManualReview** (never auto-reject because a vendor is down).
 - **Audit**: domain events on the session aggregate become `audit_events` rows in the **same transaction** as the state change
-  (done in `KycDbContext.SaveChangesAsync`). A DB trigger makes `audit_events` append-only. Events flagged `publish` also go to `outbox_messages`.
+  (done in `KycDbContext.SaveChangesAsync`). A DB trigger makes `audit_events` append-only. Partners read it at `GET /v1/verification-sessions/{id}/events`.
 - **PII**: the document number is stored only as an HMAC (`document_number_hash`, for repeat-attempt detection); extracted identity is
-  AES-GCM encrypted (`extracted_identity_encrypted`). No PII in logs or audit payloads. A retention job purges images N days after a decision.
+  AES-GCM encrypted (`extracted_identity_encrypted`). No PII in logs or audit payloads (IP addresses are a stated exception, kept for
+  fraud). The maintenance job purges images `partners.image_retention_days` after a decision; the bank holds the FICA record.
+- **Designed, not built** (documented only): webhooks (polling is the built mechanism), tracing wiring, broker, Temporal, OAuth2/mTLS/OIDC,
+  hash-chained audit, malware scanning, legal hold, erasure API, load test. See DECISIONS.md step 11.
 - One deployable, two roles: env `Kyc__Roles` = `api`, `worker`, or `api,worker` (default). docker-compose runs them as separate containers.
 
 ## Solution layout
 ```
 src/Kyc.Domain          Pure domain: entities, SessionStateMachine, DecisionEngine, WorkflowRules (no infra deps)
-src/Kyc.Infrastructure  EF Core (Postgres, snake_case), migrations, S3 storage, mock providers, job queue,
-                        workflow job handlers, outbox publisher, maintenance (expiry/retention), crypto helpers
-src/Kyc.Api             ASP.NET Core minimal APIs, auth handlers, endpoints, correlation id, problem+json, OTel, Swagger
-tests/Kyc.UnitTests     Domain rules, decision engine, crypto, mock provider marker parsing
+src/Kyc.Infrastructure  EF Core (Postgres, snake_case), migrations, partner seeder, S3 storage, Vendor A adapter + sandbox,
+                        Polly resilience, job queue/processor + handlers, maintenance (expiry/retention), crypto helpers
+src/Kyc.Api             ASP.NET Core minimal APIs, auth handlers, endpoints, correlation id, problem+json, metrics, Swagger
+tests/Kyc.UnitTests     Domain rules, decision engine, crypto, Vendor A adapter mapping + sandbox markers
 tests/Kyc.IntegrationTests  WebApplicationFactory + Testcontainers (Postgres, SeaweedFS), full journeys (needs Docker running)
 docs/ARCHITECTURE.md    The ≤5-page architecture doc
+docs/DECISIONS.md       Decision log from the design walkthrough (source of truth for the why)
 scripts/demo.ps1        End-to-end demo: desktop → QR handoff → mobile uploads → decision
 ```
 
@@ -79,29 +91,22 @@ Start the infra containers first (`docker compose up -d postgres s3`).
 ## Gotchas already hit (don't reintroduce)
 - **Guid keys must be `ValueGenerated.Never`** (set for all entities in `KycDbContext.OnModelCreating`). Otherwise EF treats a
   new child added through a navigation (`session.Artifacts.Add`) as an existing row, UPDATEs it, and throws a concurrency exception.
-- **No `EnableRetryOnFailure`** on Npgsql: it forbids the explicit transaction the outbox relay uses.
+- **No `EnableRetryOnFailure`** on Npgsql: it forbids explicit transactions; transient DB errors already surface as job retries or a retryable 503.
 - **Authentication runs before rate limiting.** A default policy scheme picks ApiKey or Bearer from the headers, so rate-limit
-  partitions see the session/client id. The other order silently falls back to per-IP buckets.
-- The mock document vendor returns extracted identity even for `DOC_TAMPERED`; otherwise repeat attempts after a rejection can't be linked.
+  partitions see the session/partner id. The other order silently falls back to per-IP buckets.
+- The Vendor A sandbox returns extracted identity even for `DOC_TAMPERED`; otherwise repeat attempts after a rejection can't be linked.
 - The demo uses a random customer IP per scenario; a fixed IP (correctly) trips the `HIGH_IP_VELOCITY` rule after 10 sessions.
 - Regenerating the initial migration drops the hand-written append-only trigger SQL on `audit_events`. Re-add it (see the end of `Up`).
+- Only the api container seeds partners (`Partners__SeedOnStartup: "false"` on the worker), to avoid a first-start race on the PK.
+- `Microsoft.EntityFrameworkCore.Relational` is pinned in Infrastructure to match the Design package; without it the unit tests
+  see two EF versions (MSB3277).
+- In this environment, bash heredocs containing apostrophes break the Bash tool; write scripts to a file instead.
 
 ## Progress
-- [x] Solution scaffold, net10.0, pinned packages, dotnet-ef local tool (`dotnet-tools.json`)
-- [x] Domain: enums, state machine, aggregate + entities, decision engine, workflow rules
-- [x] Infrastructure: DbContext, crypto, S3 storage, mock providers + Polly, job queue/processor, 4 handlers, outbox, maintenance
-- [x] EF migration `InitialSchema` (+ append-only trigger on audit_events)
-- [x] API: auth handlers, partner/client/handoff/review endpoints, middleware, OTel/Prometheus, Swagger, rate limiting
-- [x] docker-compose (postgres, s3, api, worker) + Dockerfile; verified with `--scale worker=2`
-- [x] Unit tests: 47 passing
-- [x] Integration tests: 12 passing (Testcontainers)
-- [x] scripts/demo.ps1: all 8 scenarios pass against the compose stack
-- [x] requests.http, README.md, docs/ARCHITECTURE.md
-- [ ] Optional polish: tiny HTML page to show the QR visually; partner webhook publisher; DLQ replay endpoint
-- [x] Initial commit on `main`; full original version kept on branch `full-implementation`
-- [x] Build phase of the walkthrough (2026-11-19): outbox removed, QR PNG removed, tracing wiring removed, `partners` +
-      `partner_api_keys` tables (replace `ApiClients` config; dev seed via `Partners:Seed`), reviewer = partner key +
-      `X-Reviewer-Id`, mocks → `Providers/VendorA/` (sandbox client + adapter + per-vendor thresholds), permanent
-      vendor errors dead-letter immediately, per-partner image retention, migration regenerated (+ trigger).
-      Unit 59 ✓, integration 13 ✓, demo 9/9 ✓.
-- [ ] Next: cleanup + docs (rewrite ARCHITECTURE.md from docs/DECISIONS.md, README updates incl. "How to replace Vendor A")
+- [x] Original full build (kept on branch `full-implementation`), then the design walkthrough (docs/DECISIONS.md)
+- [x] Build phase: partners tables, reviewer identity, Vendor A adapter, permanent vendor errors, per-partner retention;
+      removed outbox, QR PNG, tracing wiring; migration regenerated (+ trigger)
+- [x] Cleanup: stale comments, unused audit type, EF version warning (0 warnings), `dotnet format`, `.gitattributes`
+- [x] Unit tests 59 passing, integration tests 13 passing, demo 9/9 scenarios passing (compose stack)
+- [ ] Docs: rewrite docs/ARCHITECTURE.md (max 5 pages) from DECISIONS.md; README (setup, assumptions, trade-offs, limitations,
+      "How to replace Vendor A", reviewer id guidance, AI-disclosure placeholder); tidy DECISIONS.md for submission

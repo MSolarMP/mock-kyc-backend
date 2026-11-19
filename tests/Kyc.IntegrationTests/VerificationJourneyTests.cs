@@ -157,7 +157,10 @@ public sealed class VerificationJourneyTests(KycApiFixture fx)
         using var customer = fx.Customer(token);
         var res = await customer.PostAsJsonAsync("/v1/client/session/artifacts", new
         {
-            type = "Selfie", contentType = "image/jpeg", sizeBytes = 10, sha256 = new string('a', 64),
+            type = "Selfie",
+            contentType = "image/jpeg",
+            sizeBytes = 10,
+            sha256 = new string('a', 64),
         });
         Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
         Assert.Contains("unexpected_artifact", await res.Content.ReadAsStringAsync());

@@ -65,13 +65,17 @@ builder.Services.AddRateLimiter(o =>
         ctx.User.FindFirstValue(KycClaims.SessionId) ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new TokenBucketRateLimiterOptions
         {
-            TokenLimit = 60, TokensPerPeriod = 60, ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+            TokenLimit = 60,
+            TokensPerPeriod = 60,
+            ReplenishmentPeriod = TimeSpan.FromMinutes(1),
         }));
     o.AddPolicy("partner", ctx => RateLimitPartition.GetTokenBucketLimiter(
         ctx.User.FindFirstValue(KycClaims.PartnerId) ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new TokenBucketRateLimiterOptions
         {
-            TokenLimit = 600, TokensPerPeriod = 600, ReplenishmentPeriod = TimeSpan.FromMinutes(1),
+            TokenLimit = 600,
+            TokensPerPeriod = 600,
+            ReplenishmentPeriod = TimeSpan.FromMinutes(1),
         }));
 });
 
@@ -109,12 +113,15 @@ builder.Services.AddSwaggerGen(c =>
     });
     c.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
     {
-        Type = SecuritySchemeType.ApiKey, In = ParameterLocation.Header, Name = "X-Api-Key",
+        Type = SecuritySchemeType.ApiKey,
+        In = ParameterLocation.Header,
+        Name = "X-Api-Key",
         Description = "Partner key, e.g. dev-partner-key. Review endpoints also need an X-Reviewer-Id header.",
     });
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Type = SecuritySchemeType.Http, Scheme = "bearer",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
         Description = "Customer device token (clientToken from session creation or handoff redeem)",
     });
     c.AddSecurityRequirement(doc => new OpenApiSecurityRequirement

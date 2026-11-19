@@ -69,7 +69,7 @@ public class ProviderCheck
     public Guid SessionId { get; private set; }
     public Guid? ArtifactId { get; private set; }
     public CheckType Type { get; private set; }
-    /// <summary>The provider that did the check (e.g. "mock", "smile-id"). Results stay comparable when vendors change.</summary>
+    /// <summary>The provider that did the check (e.g. "vendor-a"). Results stay comparable when vendors change.</summary>
     public string Provider { get; private set; } = default!;
     public string? ProviderReference { get; private set; }
     public CheckOutcome Outcome { get; private set; }
@@ -83,20 +83,20 @@ public class ProviderCheck
     public static ProviderCheck Create(Guid sessionId, Guid? artifactId, CheckType type, string provider,
         string? providerReference, CheckOutcome outcome, decimal? score, IEnumerable<string> reasonCodes,
         int attempt, long durationMs, DateTimeOffset now) => new()
-    {
-        Id = Guid.CreateVersion7(now),
-        SessionId = sessionId,
-        ArtifactId = artifactId,
-        Type = type,
-        Provider = provider,
-        ProviderReference = providerReference,
-        Outcome = outcome,
-        Score = score,
-        ReasonCodes = reasonCodes.ToList(),
-        Attempt = attempt,
-        DurationMs = durationMs,
-        CompletedAt = now,
-    };
+        {
+            Id = Guid.CreateVersion7(now),
+            SessionId = sessionId,
+            ArtifactId = artifactId,
+            Type = type,
+            Provider = provider,
+            ProviderReference = providerReference,
+            Outcome = outcome,
+            Score = score,
+            ReasonCodes = reasonCodes.ToList(),
+            Attempt = attempt,
+            DurationMs = durationMs,
+            CompletedAt = now,
+        };
 }
 
 /// <summary>
@@ -121,16 +121,16 @@ public class Decision
 
     public static Decision Automated(Guid sessionId, DecisionOutcome outcome, IEnumerable<string> reasons,
         string rulesVersion, int riskScore, DateTimeOffset now) => new()
-    {
-        Id = Guid.CreateVersion7(now),
-        SessionId = sessionId,
-        Outcome = outcome,
-        DecidedBy = ActorType.System,
-        ReasonCodes = reasons.ToList(),
-        RulesVersion = rulesVersion,
-        RiskScore = riskScore,
-        DecidedAt = now,
-    };
+        {
+            Id = Guid.CreateVersion7(now),
+            SessionId = sessionId,
+            Outcome = outcome,
+            DecidedBy = ActorType.System,
+            ReasonCodes = reasons.ToList(),
+            RulesVersion = rulesVersion,
+            RiskScore = riskScore,
+            DecidedAt = now,
+        };
 
     public static Decision Manual(Guid sessionId, DecisionOutcome outcome, string reviewerId, string reasonCode,
         string? notes, DateTimeOffset now)
@@ -204,18 +204,18 @@ public class SessionAccessToken
 
     public static SessionAccessToken Create(Guid sessionId, string tokenHash, Channel channel, bool viaHandoff,
         string? ip, string? userAgent, string? fingerprint, DateTimeOffset expiresAt, DateTimeOffset now) => new()
-    {
-        Id = Guid.CreateVersion7(now),
-        SessionId = sessionId,
-        TokenHash = tokenHash,
-        Channel = channel,
-        ViaHandoff = viaHandoff,
-        IpAddress = ip,
-        UserAgent = userAgent,
-        DeviceFingerprint = fingerprint,
-        CreatedAt = now,
-        ExpiresAt = expiresAt,
-    };
+        {
+            Id = Guid.CreateVersion7(now),
+            SessionId = sessionId,
+            TokenHash = tokenHash,
+            Channel = channel,
+            ViaHandoff = viaHandoff,
+            IpAddress = ip,
+            UserAgent = userAgent,
+            DeviceFingerprint = fingerprint,
+            CreatedAt = now,
+            ExpiresAt = expiresAt,
+        };
 
     public bool IsActive(DateTimeOffset now) => RevokedAt is null && now < ExpiresAt;
 }
@@ -258,15 +258,15 @@ public class WorkflowJob
 
     public static WorkflowJob Create(Guid sessionId, JobType type, string payload, string? correlationId,
         DateTimeOffset now, int maxAttempts = 5) => new()
-    {
-        Id = Guid.CreateVersion7(now),
-        SessionId = sessionId,
-        Type = type,
-        Payload = payload,
-        Status = JobStatus.Pending,
-        MaxAttempts = maxAttempts,
-        RunAfter = now,
-        CorrelationId = correlationId,
-        CreatedAt = now,
-    };
+        {
+            Id = Guid.CreateVersion7(now),
+            SessionId = sessionId,
+            Type = type,
+            Payload = payload,
+            Status = JobStatus.Pending,
+            MaxAttempts = maxAttempts,
+            RunAfter = now,
+            CorrelationId = correlationId,
+            CreatedAt = now,
+        };
 }

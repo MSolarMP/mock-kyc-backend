@@ -101,7 +101,7 @@ public class VendorASandboxTests
     }
 }
 
-/// <summary>The translation layer: Vendor A's vocabulary must map onto ours, and nothing unknown may become a pass.</summary>
+/// <summary>Vendor A codes map onto ours, and nothing unknown becomes a pass.</summary>
 public class VendorAAdapterTests
 {
     [Theory]

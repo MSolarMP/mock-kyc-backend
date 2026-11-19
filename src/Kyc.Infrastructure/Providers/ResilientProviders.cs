@@ -13,12 +13,7 @@ public sealed class ProviderResilienceOptions
     public int CircuitBreakSeconds { get; set; } = 30;
 }
 
-/// <summary>
-/// In-process resilience around each vendor: a timeout so a slow vendor can't hold a worker, and a circuit breaker so
-/// we fail fast (and back off) while a vendor is degraded, rather than piling up requests.
-/// Retries are deliberately <b>not</b> done here: they happen at the job level (<see cref="Workflow.JobProcessor"/>) with
-/// durable backoff, so a retry survives a worker crash and doesn't hold a thread.
-/// </summary>
+// Timeout and circuit breaker per vendor. No retries here: the job queue retries, which survives a crash.
 public static class ProviderResilience
 {
     public static ResiliencePipeline Build(string provider, ProviderResilienceOptions o) =>
@@ -34,7 +29,7 @@ public static class ProviderResilience
             .AddTimeout(TimeSpan.FromSeconds(o.TimeoutSeconds))
             .Build();
 
-    /// <summary>Normalises resilience failures into <see cref="TransientProviderException"/> for the job processor.</summary>
+    /// <summary>Turns timeouts and open circuits into <see cref="TransientProviderException"/>.</summary>
     public static async Task<T> ExecuteAsync<T>(this ResiliencePipeline pipeline, string provider,
         Func<CancellationToken, Task<T>> call, CancellationToken ct)
     {
@@ -53,7 +48,6 @@ public static class ProviderResilience
     }
 }
 
-/// <summary>Decorators that add the resilience pipeline around any vendor adapter.</summary>
 public sealed class ResilientDocumentProvider(IDocumentVerificationProvider inner, ResiliencePipeline pipeline)
     : IDocumentVerificationProvider
 {

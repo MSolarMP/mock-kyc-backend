@@ -18,7 +18,7 @@ using OpenTelemetry.Resources;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// One deployable, two roles: "api" serves HTTP, "worker" runs the workflow. They scale independently in production.
+// Same binary runs as api, worker, or both, so each can scale on its own.
 var roles = (builder.Configuration["Kyc:Roles"] ?? "api,worker")
     .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
     .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -35,14 +35,10 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 });
 
-// ---- Errors ----
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ProblemExceptionHandler>();
 
-// ---- AuthN / AuthZ ----
-// The default scheme forwards on the credential presented, so UseAuthentication fills HttpContext.User *before*
-// rate limiting, and limits can be per session / per client rather than per IP (which would lump together
-// everyone behind a carrier NAT).
+// Pick the scheme from the header so rate limits can key on session or partner instead of IP (carrier NAT).
 builder.Services.AddAuthentication(AuthSchemes.Default)
     .AddPolicyScheme(AuthSchemes.Default, "API key or session token", o => o.ForwardDefaultSelector = ctx =>
         ctx.Request.Headers.ContainsKey("X-Api-Key") ? AuthSchemes.ApiKey : AuthSchemes.SessionToken)
@@ -53,7 +49,7 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(Policies.Customer, p => p.AddAuthenticationSchemes(AuthSchemes.SessionToken)
         .RequireClaim(KycClaims.SessionId));
 
-// ---- Rate limiting (per instance; at scale this moves to the API gateway / a shared store) ----
+// Per-instance limits. At scale these move to the API gateway.
 var redeemPerMinute = builder.Configuration.GetValue("RateLimits:HandoffRedeemPerMinute", 10);
 builder.Services.AddRateLimiter(o =>
 {
@@ -79,15 +75,14 @@ builder.Services.AddRateLimiter(o =>
         }));
 });
 
-// Behind a load balancer: trust X-Forwarded-For so audit and fraud signals record the real client IP.
+// Trust X-Forwarded-For so audit and fraud signals get the real client IP.
 builder.Services.Configure<ForwardedHeadersOptions>(o =>
 {
     o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    o.KnownIPNetworks.Clear(); // Demo only: in production, restrict to the load balancer's address range.
+    o.KnownIPNetworks.Clear(); // Demo only. Restrict to the load balancer range in production.
     o.KnownProxies.Clear();
 });
 
-// ---- Observability ----
 builder.Logging.Configure(o => o.ActivityTrackingOptions =
     ActivityTrackingOptions.TraceId | ActivityTrackingOptions.SpanId);
 builder.Services.AddOpenTelemetry()
@@ -96,12 +91,10 @@ builder.Services.AddOpenTelemetry()
         .AddMeter(KycMetrics.MeterName)
         .AddAspNetCoreInstrumentation()
         .AddPrometheusExporter());
-// Distributed tracing is designed but not wired up: workflow spans already use KycMetrics.ActivitySource, so enabling
-// it is .WithTracing(t => t.AddSource(...).AddAspNetCoreInstrumentation().AddOtlpExporter()) plus a collector.
+// Tracing isn't wired up yet. Workflow spans already use KycMetrics.ActivitySource, so it just needs .WithTracing() and a collector.
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<KycDbContext>("database", tags: ["ready"]);
 
-// ---- OpenAPI ----
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -139,7 +132,7 @@ app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseAuthentication();
-app.UseRateLimiter();   // after authentication, so partitions can use the session / client identity
+app.UseRateLimiter();   // after auth so limits can key on session or partner
 app.UseAuthorization();
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
@@ -156,7 +149,36 @@ if (isApi)
     app.MapReviewEndpoints();
 }
 
+app.Lifetime.ApplicationStarted.Register(() => PrintBanner(app, roles, isApi));
+
 app.Run();
+
+// Plain console output (not the JSON logger) so it's readable at a glance.
+static void PrintBanner(WebApplication app, IEnumerable<string> roles, bool isApi)
+{
+    var urls = app.Urls
+        .Select(u => u.Replace("://+", "://localhost").Replace("://*", "://localhost")
+            .Replace("://0.0.0.0", "://localhost").Replace("://[::]", "://localhost"))
+        .ToList();
+    var baseUrl = urls.FirstOrDefault(u => u.StartsWith("http://")) ?? urls.FirstOrDefault() ?? "(unknown)";
+    var db = new Npgsql.NpgsqlConnectionStringBuilder(app.Configuration.GetConnectionString("Kyc"));
+
+    Console.WriteLine();
+    Console.WriteLine($"  KYC service started ({string.Join(" + ", roles.Order())})");
+    if (isApi)
+    {
+        Console.WriteLine($"  Swagger:      {baseUrl}/swagger");
+        Console.WriteLine($"  Health:       {baseUrl}/health/ready");
+        Console.WriteLine($"  Metrics:      {baseUrl}/metrics");
+    }
+    else
+    {
+        Console.WriteLine("  Processing jobs (no public API)");
+    }
+    Console.WriteLine($"  Database:     {db.Host}:{db.Port}/{db.Database}");
+    Console.WriteLine($"  Storage (S3): {app.Configuration["Storage:PublicServiceUrl"] ?? app.Configuration["Storage:ServiceUrl"]} bucket={app.Configuration["Storage:Bucket"]}");
+    Console.WriteLine();
+}
 
 static async Task InitialiseAsync(WebApplication app)
 {
@@ -164,7 +186,7 @@ static async Task InitialiseAsync(WebApplication app)
     using var scope = app.Services.CreateScope();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
 
-    // Dev/demo convenience. In production, migrations run as a separate pipeline step before rollout.
+    // Demo convenience. Production runs migrations as a separate deploy step.
     if (config.GetValue("Database:MigrateOnStartup", false))
     {
         logger.LogInformation("Applying database migrations");

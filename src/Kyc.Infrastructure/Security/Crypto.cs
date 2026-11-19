@@ -8,15 +8,15 @@ public sealed class SecurityOptions
 {
     public const string Section = "Security";
 
-    /// <summary>Base64 256-bit key for field encryption. In production it comes from a KMS/Key Vault and is rotated using <see cref="KeyId"/>.</summary>
+    /// <summary>Base64 256-bit key. Comes from a KMS in production.</summary>
     public string FieldEncryptionKey { get; set; } = "";
     public byte KeyId { get; set; } = 1;
 
-    /// <summary>Base64 secret "pepper" for HMAC-ing identifiers. Kept separate from the encryption key.</summary>
+    /// <summary>Base64 HMAC key for identifiers. Separate from the encryption key.</summary>
     public string IdentifierHmacKey { get; set; } = "";
 }
 
-/// <summary>Opaque random tokens. Only their SHA-256 hash is persisted.</summary>
+// Random tokens. Only the SHA-256 hash is stored.
 public static class Tokens
 {
     public static string Generate(int bytes = 32) =>
@@ -29,11 +29,8 @@ public static class Tokens
         Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }
 
-/// <summary>
-/// AES-256-GCM field encryption for PII at rest. This is a second layer on top of disk/database encryption: a
-/// backup or a read replica leaking doesn't expose plaintext identity data.
-/// Format: [keyId:1][nonce:12][tag:16][ciphertext:n]. The key id lets old rows decrypt after a key rotation.
-/// </summary>
+// AES-256-GCM for PII, on top of disk encryption, so a leaked backup has no plaintext.
+// Format: [keyId:1][nonce:12][tag:16][ciphertext]. Key id lets old rows decrypt after rotation.
 public sealed class FieldProtector
 {
     private readonly byte[] _key;
@@ -69,10 +66,7 @@ public sealed class FieldProtector
     }
 }
 
-/// <summary>
-/// Keyed hash for identifiers we need to match on but must not store in plaintext (document numbers).
-/// It's keyed (HMAC) so a leaked table can't be brute-forced over the small space of national ID numbers.
-/// </summary>
+// HMAC for document numbers. Keyed because ID numbers are easy to brute-force from a plain hash.
 public sealed class IdentifierHasher(IOptions<SecurityOptions> options)
 {
     private readonly byte[] _key = Convert.FromBase64String(options.Value.IdentifierHmacKey);

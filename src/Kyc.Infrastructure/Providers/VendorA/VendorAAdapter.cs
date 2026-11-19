@@ -3,12 +3,7 @@ using Kyc.Domain;
 
 namespace Kyc.Infrastructure.Providers.VendorA;
 
-/// <summary>
-/// The translation layer between Vendor A and the rest of the platform. It implements our vendor-neutral provider
-/// interfaces and maps Vendor A's verdicts, 0–100 scores, sub-check names and HTTP errors into our outcomes,
-/// 0–1 scores, reason codes and failure types. Replacing Vendor A means writing a sibling of this class for the
-/// new vendor and changing config; the workflow, decision engine, database and API don't change.
-/// </summary>
+// Maps Vendor A's verdicts, 0-100 scores, sub-checks and HTTP errors onto our vendor-neutral types.
 public sealed class VendorAAdapter(IVendorAClient client)
     : IDocumentVerificationProvider, ILivenessProvider, IFaceMatchProvider
 {
@@ -38,15 +33,13 @@ public sealed class VendorAAdapter(IVendorAClient client)
         return ToResult(report);
     }
 
-    // ---- Mapping: Vendor A's vocabulary -> ours ----
-
     public static CheckOutcome MapOutcome(string result) => result switch
     {
         VendorAResult.Clear => CheckOutcome.Passed,
         VendorAResult.Consider => CheckOutcome.Inconclusive,
         VendorAResult.Unidentified => CheckOutcome.Unreadable,
         VendorAResult.Rejected => CheckOutcome.Failed,
-        // An unknown verdict is never treated as a pass: a human looks at it.
+        // Unknown verdicts go to a human, never a pass.
         _ => CheckOutcome.Inconclusive,
     };
 
@@ -63,7 +56,7 @@ public sealed class VendorAAdapter(IVendorAClient client)
         ["face_comparison"] = "FACE_SIMILARITY_LOW",
     };
 
-    /// <summary>Unknown sub-checks are kept (prefixed) rather than dropped, so nothing the vendor said is lost.</summary>
+    // Unknown sub-checks are kept with a prefix rather than dropped.
     public static IReadOnlyList<string> MapReasons(IReadOnlyList<string> breakdown) =>
         breakdown.Select(b => ReasonMap.GetValueOrDefault(b) ?? $"VENDOR_A_{b.ToUpperInvariant()}").ToList();
 
@@ -80,10 +73,7 @@ public sealed class VendorAAdapter(IVendorAClient client)
     private static ProviderResult ToResult(VendorAReport r) =>
         new(MapOutcome(r.Result), MapScore(r.Score), MapReasons(r.Breakdown), r.Id);
 
-    /// <summary>
-    /// HTTP errors become our failure types: 408/429/5xx are transient (the job retries with backoff); other 4xx mean
-    /// our request or credentials are wrong, so retrying can't help and the job is dead-lettered straight away.
-    /// </summary>
+    // 408/429/5xx are transient and retried. Other 4xx are permanent: retrying won't help.
     public static async Task<VendorAReport> Call(Func<Task<VendorAReport>> call)
     {
         try

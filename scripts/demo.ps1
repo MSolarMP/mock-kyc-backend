@@ -1,7 +1,6 @@
 <#
 .SYNOPSIS
-  End-to-end demo of the KYC journey: partner creates session -> desktop issues QR handoff -> mobile redeems ->
-  mobile uploads document + selfie via pre-signed URLs -> worker runs checks -> decision -> audit trail.
+  Runs the KYC journey end to end: session, QR handoff, uploads, checks, decision, audit trail.
 
 .EXAMPLE
   .\scripts\demo.ps1                        # happy path
@@ -46,7 +45,7 @@ function Invoke-Api {
     }
 }
 
-# Fake image: a JPEG header plus optional sandbox markers (the way vendor sandboxes use magic test images).
+# Fake JPEG with sandbox markers the mock vendor reacts to.
 function New-TestImage([string[]]$Markers, [string]$Salt) {
     $text = "KYC test image $Salt " + (($Markers | ForEach-Object { "KYC_MOCK:$_" }) -join " ")
     $header = [byte[]](0xFF, 0xD8, 0xFF, 0xE0)
@@ -64,7 +63,7 @@ function Send-Artifact($Token, [string]$Type, [byte[]]$Bytes) {
         type = $Type; contentType = "image/jpeg"; sizeBytes = $Bytes.Length; sha256 = (Get-Sha256Hex $Bytes)
     } $auth
     Write-Ok "pre-signed PUT issued for $Type (expires $($slot.expiresAt))"
-    # Straight to object storage. The API never sees the bytes.
+    # Straight to object storage, the API never sees the bytes.
     Invoke-WebRequest -Method Put -Uri $slot.uploadUrl -Body $Bytes -ContentType "image/jpeg" -UseBasicParsing | Out-Null
     Write-Ok "uploaded $($Bytes.Length) bytes directly to object storage"
     $state = Invoke-Api POST "/v1/client/session/artifacts/$($slot.artifactId)/complete" $null $auth
@@ -76,7 +75,7 @@ function Wait-ForNextAction($Token, [string[]]$Until, [int]$TimeoutSeconds = 60)
     while ((Get-Date) -lt $deadline) {
         $s = Invoke-Api GET "/v1/client/session" $null @{ Authorization = "Bearer $Token" }
         if ($Until -contains $s.nextAction -or ($s.status -eq "ManualReview" -and $Until -contains "REVIEW")) { return $s }
-        Start-Sleep -Milliseconds 1500  # a realistic client poll interval (rate limit is 60/min per session)
+        Start-Sleep -Milliseconds 1500  # rate limit is 60/min per session
     }
     throw "Timed out waiting for $($Until -join '/')"
 }
@@ -86,7 +85,7 @@ function Invoke-Scenario([string]$Name) {
     if ($null -eq $def) { throw "Unknown scenario '$Name'. Options: $($scenarios.Keys -join ', ')" }
     $docMarkers, $selfieMarkers, $expected, $recapture = $def
     $salt = [guid]::NewGuid().ToString("N")
-    # A distinct customer IP per run; reusing one would (correctly) trip the HIGH_IP_VELOCITY fraud rule.
+    # New IP each run, otherwise the HIGH_IP_VELOCITY fraud rule kicks in.
     $customerIp = "198.51.100.$(Get-Random -Minimum 1 -Maximum 254)"
     $partner = @{ "X-Api-Key" = $PartnerKey; "Idempotency-Key" = "demo-$salt"; "X-Correlation-Id" = "demo-$salt" }
 

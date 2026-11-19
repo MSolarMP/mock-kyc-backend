@@ -1,21 +1,24 @@
-# Local stack: Postgres + SeaweedFS (S3-compatible object storage) + the KYC service in two roles.
-#   docker compose up -d postgres s3           -> infra only (run the API from Visual Studio)
-#   docker compose up --build                  -> everything
+#   docker compose up -d postgres s3   -> infra only (run the API from Visual Studio)
+#   docker compose up --build          -> everything (postgres/s3 run quietly: docker compose logs s3)
 name: kyc
 
 x-kyc-env: &kyc-env
-  ConnectionStrings__Kyc: Host=postgres;Port=5432;Database=kyc;Username=kyc;Password=kyc
+  ConnectionStrings__Kyc: Host=postgres;Port=5432;Database=kyc;Username=kyc;Password=kyc;Gss Encryption Mode=Disable
   Storage__ServiceUrl: http://s3:8333
-  # Pre-signed URLs are used by clients on the host machine, so they're signed for localhost.
+  # Pre-signed URLs are used from the host, so sign them for localhost.
   Storage__PublicServiceUrl: http://localhost:9000
   Storage__AccessKey: kyc-s3-access
   Storage__SecretKey: kyc-s3-secret-dev-only
-  # The demo script redeems many QR codes from one IP; production keeps the default of 10/min.
+  # Demo redeems lots of QR codes from one IP.
   RateLimits__HandoffRedeemPerMinute: "100"
+  # Readable one-line logs locally. Production keeps JSON.
+  Logging__Console__FormatterName: simple
+  Logging__Console__FormatterOptions__SingleLine: "true"
 
 services:
   postgres:
     image: postgres:17-alpine
+    attach: false
     environment:
       POSTGRES_DB: kyc
       POSTGRES_USER: kyc
@@ -27,10 +30,10 @@ services:
       interval: 3s
       retries: 20
 
-  # SeaweedFS speaks the S3 API. (MinIO no longer publishes free container images.) In production this is AWS S3
-  # or any S3-compatible store; the app only uses the S3 API.
+  # S3-compatible store (MinIO no longer ships free images). Production would use AWS S3.
   s3:
     image: chrislusf/seaweedfs:3.97
+    attach: false
     command: server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -master.volumeSizeLimitMB=256
     ports: ["9000:8333"]
     volumes:
@@ -60,10 +63,10 @@ services:
       Kyc__Roles: worker
       Database__MigrateOnStartup: "false"
       Storage__EnsureBucketOnStartup: "false"
-      Partners__SeedOnStartup: "false"   # the api container seeds dev partners
+      Partners__SeedOnStartup: "false"   # api seeds the dev partners
     depends_on:
       api: { condition: service_started }
-    # Scale workers independently: docker compose up --scale worker=3
+    # docker compose up --scale worker=3
     deploy:
       replicas: 1
 

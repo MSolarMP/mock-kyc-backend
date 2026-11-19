@@ -13,11 +13,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Infrastructure.Workflow.Handlers;
 
-/// <summary>
-/// Gathers check results and cross-session risk signals, runs the decision engine, and records the decision.
-/// Signal queries go through indexes on hashes (document number, image sha256) and on (ip, created_at),
-/// so the same data that drives the decision is there for investigators.
-/// </summary>
+// Gathers check results and cross-session signals, then runs the decision engine.
 public sealed class AssessRiskAndDecideHandler(
     DecisionEngine engine,
     FieldProtector protector,

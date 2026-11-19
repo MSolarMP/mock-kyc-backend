@@ -2,10 +2,7 @@ using Kyc.Domain;
 
 namespace Kyc.Infrastructure.Common;
 
-/// <summary>
-/// Who is acting, and under which correlation id. Filled in by API middleware for HTTP requests, and by the job
-/// processor for background work. <see cref="Persistence.KycDbContext"/> stamps it on every audit event.
-/// </summary>
+// Current actor and correlation id. Set by API middleware or the job processor; stamped on every audit event.
 public interface IRequestContext
 {
     ActorType ActorType { get; }

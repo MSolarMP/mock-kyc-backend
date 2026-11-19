@@ -48,7 +48,7 @@ public sealed class VerificationJourneyTests(KycApiFixture fx)
         Assert.Equal("Approved", decision.GetProperty("outcome").GetString());
         Assert.Equal("System", decision.GetProperty("decidedBy").GetString());
 
-        // Audit trail answers: when it started, what happened, what was decided, whether a human stepped in
+        // Audit shows start, steps, decision, and whether a human stepped in
         var events = await partner.GetFromJsonAsync<JsonElement[]>($"/v1/verification-sessions/{sessionId}/events", Json);
         var types = events!.Select(e => e.GetProperty("eventType").GetString()).ToList();
         Assert.Equal("session.created", types[0]);
@@ -104,7 +104,7 @@ public sealed class VerificationJourneyTests(KycApiFixture fx)
         using var forged = fx.Customer("not-a-real-token-but-long-enough-xx");
         Assert.Equal(HttpStatusCode.Unauthorized, (await forged.GetAsync("/v1/client/session")).StatusCode);
 
-        // Review endpoints need a named reviewer, and a partner's reviewers can't open another partner's session
+        // Needs a named reviewer, and can't open another partner's session
         using var partner = fx.Partner();
         Assert.Equal(HttpStatusCode.BadRequest, (await partner.GetAsync("/v1/reviews")).StatusCode);
         using var otherReviewer = fx.Partner(KycApiFixture.OtherPartnerKey);
@@ -187,7 +187,7 @@ public sealed class VerificationJourneyTests(KycApiFixture fx)
             new { outcome = "Rejected", reasonCode = "face_not_matching", notes = "Different person" });
         decide.EnsureSuccessStatusCode();
 
-        // A second decision is refused: the session is no longer in review
+        // Second decision is refused since the session left review
         var again = await reviewer.PostAsJsonAsync($"/v1/reviews/{sessionId}/decision",
             new { outcome = "Approved", reasonCode = "X" });
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
@@ -199,7 +199,7 @@ public sealed class VerificationJourneyTests(KycApiFixture fx)
         Assert.Equal(["ManualReview", "Rejected"], decisions.Select(d => d.GetProperty("outcome").GetString()));
         Assert.Equal(KycApiFixture.ReviewerId, decisions[1].GetProperty("reviewerId").GetString());
 
-        // The audit trail names the person who decided, and the partner they acted for
+        // Audit names the reviewer and the partner they acted for
         var events = await partner.GetFromJsonAsync<JsonElement[]>($"/v1/verification-sessions/{sessionId}/events", Json);
         Assert.Contains(events!, e => e.GetProperty("eventType").GetString() == "decision.made"
             && e.GetProperty("actorId").GetString() == $"reviewer:{KycApiFixture.ReviewerId} via partner:partner-a");

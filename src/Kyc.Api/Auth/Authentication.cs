@@ -19,7 +19,7 @@ public static class AuthSchemes
 
 public static class Policies
 {
-    /// <summary>A partner system, or the partner's back office acting for one of its reviewers.</summary>
+    /// <summary>Partner system, or its back office acting for a reviewer.</summary>
     public const string Partner = "partner";
     public const string Customer = "customer";
 }
@@ -32,11 +32,7 @@ public static class KycClaims
     public const string Channel = "kyc:channel";
 }
 
-/// <summary>
-/// Server-to-server auth for partner systems. Keys live hashed in <c>partner_api_keys</c>; a request's key is hashed
-/// and looked up by that hash (unique index), so the plaintext is never stored or compared.
-/// Production would put OAuth2 client credentials or mTLS in front of this (see docs).
-/// </summary>
+/// <summary>Partner API key auth. Keys are stored hashed and looked up by hash, so plaintext is never kept.</summary>
 public sealed class ApiKeyAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
@@ -69,10 +65,7 @@ public sealed class ApiKeyAuthenticationHandler(
     }
 }
 
-/// <summary>
-/// Customer device auth: an opaque bearer token bound to one session. The session id comes from the token, never
-/// from the URL, so a customer can't name a different session.
-/// </summary>
+/// <summary>Customer bearer token bound to one session. The session id comes from the token, never the URL.</summary>
 public sealed class SessionTokenAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,

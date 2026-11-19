@@ -1,21 +1,15 @@
 namespace Kyc.Domain.Workflow;
 
-/// <summary>What the workflow should do after a provider check finishes.</summary>
 public enum NextStep
 {
-    /// <summary>Move on to the next step in the happy path.</summary>
     Continue,
-    /// <summary>Ask the customer to capture the image again.</summary>
     RequestRecapture,
-    /// <summary>Skip the remaining checks and go straight to the decision.</summary>
+    // Skip remaining checks.
     GoToDecision,
 }
 
-/// <summary>
-/// Routing rules per step, kept apart from the job handlers so they're easy to read and test.
-/// The guiding rule: only what the customer can fix (image quality) earns a retry. Anything definitive goes to
-/// the decision engine at once, so we don't spend vendor fees or customer time on a session that will fail anyway.
-/// </summary>
+// Only image quality problems get a retry. Anything definitive goes straight to the decision
+// so we don't pay for more vendor checks on a session that will fail anyway.
 public static class WorkflowRules
 {
     public static NextStep AfterDocumentCheck(CheckOutcome outcome, int attemptsUsed) => outcome switch
@@ -32,7 +26,7 @@ public static class WorkflowRules
         _ => NextStep.GoToDecision,
     };
 
-    /// <summary>Exponential backoff with jitter for durable job retries (attempt 1 → ~2s, 2 → ~4s, ... capped at 5 min).</summary>
+    // Exponential backoff with jitter, capped at 5 min.
     public static TimeSpan RetryDelay(int attempt, Random? random = null)
     {
         var baseSeconds = Math.Min(Math.Pow(2, attempt), 300);

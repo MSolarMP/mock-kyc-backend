@@ -1,6 +1,6 @@
 namespace Kyc.Domain;
 
-/// <summary>An uploaded binary (identity document or selfie). Only metadata is stored here; the bytes live in object storage.</summary>
+// Metadata only. The bytes live in object storage.
 public class Artifact
 {
     private Artifact() { }
@@ -12,10 +12,10 @@ public class Artifact
     public string StorageKey { get; private set; } = default!;
     public string ContentType { get; private set; } = default!;
     public long DeclaredSizeBytes { get; private set; }
-    /// <summary>SHA-256 the client declared. It is re-checked against the stored bytes before vendors see the file.</summary>
+    // Re-checked against the stored bytes before vendors see the file.
     public string DeclaredSha256 { get; private set; } = default!;
     public bool IntegrityVerified { get; private set; }
-    /// <summary>The access token (and so the device) that performed the upload, kept for investigations.</summary>
+    // Which device uploaded it, for investigations.
     public Guid UploadedByTokenId { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset? UploadedAt { get; private set; }
@@ -32,7 +32,7 @@ public class Artifact
             SessionId = sessionId,
             Type = type,
             Status = ArtifactStatus.PendingUpload,
-            // The key contains no PII. Session-prefixed so retention jobs and investigators can list a session's files.
+            // No PII in the key. Session prefix makes it easy to list a session's files.
             StorageKey = $"sessions/{sessionId:N}/{type.ToString().ToLowerInvariant()}/{id:N}.{ext}",
             ContentType = contentType,
             DeclaredSizeBytes = size,
@@ -60,7 +60,6 @@ public class Artifact
     }
 }
 
-/// <summary>One call to an external verification provider and what it returned.</summary>
 public class ProviderCheck
 {
     private ProviderCheck() { }
@@ -69,11 +68,11 @@ public class ProviderCheck
     public Guid SessionId { get; private set; }
     public Guid? ArtifactId { get; private set; }
     public CheckType Type { get; private set; }
-    /// <summary>The provider that did the check (e.g. "vendor-a"). Results stay comparable when vendors change.</summary>
+    // e.g. "vendor-a". Kept so results stay comparable if we switch vendors.
     public string Provider { get; private set; } = default!;
     public string? ProviderReference { get; private set; }
     public CheckOutcome Outcome { get; private set; }
-    /// <summary>Normalised confidence between 0 and 1, whatever scale the provider uses.</summary>
+    // Normalised to 0..1.
     public decimal? Score { get; private set; }
     public List<string> ReasonCodes { get; private set; } = [];
     public int Attempt { get; private set; }
@@ -99,10 +98,7 @@ public class ProviderCheck
         };
 }
 
-/// <summary>
-/// A decision about a session. There can be more than one row: the system may decide ManualReview, and a
-/// reviewer then decides Approved or Rejected. Keeping both shows whether a human stepped in, and on what grounds.
-/// </summary>
+// Can have several per session: system says ManualReview, then a reviewer decides.
 public class Decision
 {
     private Decision() { }
@@ -114,7 +110,7 @@ public class Decision
     public string? ReviewerId { get; private set; }
     public List<string> ReasonCodes { get; private set; } = [];
     public string? Notes { get; private set; }
-    /// <summary>The ruleset version that produced an automated decision. Lets you replay decisions after rules change.</summary>
+    // Lets us replay automated decisions after the rules change.
     public string? RulesVersion { get; private set; }
     public int? RiskScore { get; private set; }
     public DateTimeOffset DecidedAt { get; private set; }
@@ -151,14 +147,14 @@ public class Decision
     }
 }
 
-/// <summary>A short-lived, single-use token that moves a session from one device to another (encoded in the QR code).</summary>
+// Single-use token in the QR code for moving to another device.
 public class HandoffToken
 {
     private HandoffToken() { }
 
     public Guid Id { get; private set; }
     public Guid SessionId { get; private set; }
-    /// <summary>SHA-256 of the token. The plaintext is never stored, so a database leak can't be replayed.</summary>
+    // Hash only, so a DB leak can't be replayed.
     public string TokenHash { get; private set; } = default!;
     public Guid IssuedByTokenId { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }
@@ -181,10 +177,8 @@ public class HandoffToken
     public void Revoke(DateTimeOffset now) => RevokedAt ??= now;
 }
 
-/// <summary>
-/// An opaque bearer token that lets one device act on one session. Opaque rather than a JWT so it can be
-/// revoked at once, and because the session id comes from the token, a customer can't reach another customer's session.
-/// </summary>
+// Opaque instead of a JWT so it can be revoked at once. The session id comes
+// from the token, so a customer can't reach someone else's session.
 public class SessionAccessToken
 {
     private SessionAccessToken() { }
@@ -193,7 +187,7 @@ public class SessionAccessToken
     public Guid SessionId { get; private set; }
     public string TokenHash { get; private set; } = default!;
     public Channel Channel { get; private set; }
-    /// <summary>True when the token came from redeeming a QR handoff rather than from session creation.</summary>
+    // True if issued by redeeming a QR handoff.
     public bool ViaHandoff { get; private set; }
     public string? IpAddress { get; private set; }
     public string? UserAgent { get; private set; }
@@ -220,7 +214,7 @@ public class SessionAccessToken
     public bool IsActive(DateTimeOffset now) => RevokedAt is null && now < ExpiresAt;
 }
 
-/// <summary>Append-only audit record. A database trigger blocks UPDATE and DELETE on this table.</summary>
+// Append-only. A DB trigger blocks UPDATE and DELETE.
 public class AuditEvent
 {
     public long Id { get; set; }
@@ -230,15 +224,12 @@ public class AuditEvent
     public string? ActorId { get; set; }
     public string? CorrelationId { get; set; }
     public string? IpAddress { get; set; }
-    /// <summary>JSON payload. Must not contain raw PII: use ids, codes and hashes.</summary>
+    // JSON. No raw PII, only ids, codes and hashes.
     public string Data { get; set; } = "{}";
     public DateTimeOffset OccurredAt { get; set; }
 }
 
-/// <summary>
-/// A durable unit of workflow work. Written in the same transaction as the state change that causes it,
-/// so a crash can't leave a session stuck with no work queued.
-/// </summary>
+// Saved in the same transaction as the state change, so a crash can't leave a session stuck.
 public class WorkflowJob
 {
     public Guid Id { get; set; }

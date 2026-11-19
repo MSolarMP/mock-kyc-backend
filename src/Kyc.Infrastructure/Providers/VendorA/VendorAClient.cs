@@ -5,11 +5,10 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Infrastructure.Providers.VendorA;
 
-/// <summary>An image Vendor A should check. Real Vendor A downloads <see cref="Url"/> itself (a short-lived pre-signed GET).</summary>
-/// <param name="StorageKey">Only the sandbox uses this, to read the file directly instead of over the network.</param>
+// StorageKey is only used by the sandbox to read the file directly; the real API downloads Url.
 public sealed record VendorAImage(Uri Url, string StorageKey);
 
-/// <summary>Vendor A's API, in Vendor A's terms. A production build adds an HttpClient implementation of this.</summary>
+// A real HttpClient implementation would go alongside the sandbox one.
 public interface IVendorAClient
 {
     Task<VendorAReport> CreateDocumentReportAsync(VendorAImage document, string idempotencyKey, int attempt, CancellationToken ct);
@@ -18,11 +17,7 @@ public interface IVendorAClient
         int attempt, CancellationToken ct);
 }
 
-/// <summary>
-/// Stand-in for Vendor A's sandbox. Like real vendor sandboxes, it decides the outcome from test markers inside the
-/// uploaded file (<c>KYC_MOCK:FACE_WEAK</c>, <c>KYC_MOCK:PROVIDER_DOWN</c>, ...; see README "Mock scenarios") and answers
-/// in Vendor A's own format. No marker means a clean pass.
-/// </summary>
+// Fake Vendor A sandbox. Outcome comes from KYC_MOCK markers in the file; see README "Mock scenarios".
 public sealed class SandboxVendorAClient(IObjectStorage storage, IOptions<VendorAOptions> options, TimeProvider clock)
     : IVendorAClient
 {
@@ -36,7 +31,7 @@ public sealed class SandboxVendorAClient(IObjectStorage storage, IOptions<Vendor
 
         var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
         var properties = new VendorADocumentProperties(
-            // The same file always yields the same document number, so repeat-attempt detection can be demoed.
+            // Same file gives the same document number, so repeat attempts can be demoed.
             DocumentNumber: values.GetValueOrDefault("DOC_NUMBER") ?? ("ID" + sha[..11].ToUpperInvariant()),
             DocumentType: "national_identity_card",
             FirstName: "Test",
@@ -45,8 +40,7 @@ public sealed class SandboxVendorAClient(IObjectStorage storage, IOptions<Vendor
             DateOfExpiry: (m.Contains("DOC_EXPIRED") ? today.AddYears(-1) : today.AddYears(5)).ToString("yyyy-MM-dd"),
             IssuingCountry: "ZAF");
 
-        // Like real vendors, still return the extracted data when tampering is detected: those are the documents we
-        // most need to link to later attempts.
+        // Still return extracted data on tampering so we can link later attempts.
         if (m.Contains("DOC_TAMPERED"))
             return new VendorAReport(id, VendorAResult.Rejected, 12, ["visual_authenticity"], properties);
         if (m.Contains("DOC_UNCERTAIN"))
@@ -91,7 +85,7 @@ public sealed class SandboxVendorAClient(IObjectStorage storage, IOptions<Vendor
     private static string ReportId(string prefix) => $"va_{prefix}_{Guid.NewGuid():N}"[..24];
 }
 
-/// <summary>Parses sandbox test markers (<c>KYC_MOCK:NAME</c> or <c>KYC_MOCK:NAME=value</c>) out of a file's bytes.</summary>
+/// <summary>Reads <c>KYC_MOCK:NAME</c> or <c>KYC_MOCK:NAME=value</c> markers from file bytes.</summary>
 public static class SandboxMarkers
 {
     public const string Prefix = "KYC_MOCK:";
@@ -116,10 +110,7 @@ public static class SandboxMarkers
         return (markers, values);
     }
 
-    /// <summary>
-    /// Simulated API faults, as HTTP errors: PROVIDER_FLAKY times out on the first attempt only, PROVIDER_DOWN returns
-    /// 503 every time, PROVIDER_MISCONFIGURED returns 401 (a permanent error: retrying can't help).
-    /// </summary>
+    // FLAKY times out on attempt 1 only, DOWN always 503s, MISCONFIGURED returns 401.
     public static void ThrowIfFaulted(HashSet<string> markers, int attempt)
     {
         if (markers.Contains("PROVIDER_MISCONFIGURED"))

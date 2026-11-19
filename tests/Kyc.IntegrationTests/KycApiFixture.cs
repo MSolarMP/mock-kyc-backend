@@ -13,8 +13,8 @@ using Testcontainers.PostgreSql;
 namespace Kyc.IntegrationTests;
 
 /// <summary>
-/// Real Postgres + real S3-compatible storage (SeaweedFS) in containers, with the full app (API + worker roles)
-/// running in-process. Nothing is mocked; KYC vendors are Vendor A's sandbox client, which is part of the product.
+/// Real Postgres and SeaweedFS in containers, with the full app (api + worker) in-process.
+/// Nothing is mocked. Vendors use Vendor A's sandbox client.
 /// </summary>
 public sealed class KycApiFixture : IAsyncLifetime
 {
@@ -76,7 +76,7 @@ public sealed class KycApiFixture : IAsyncLifetime
             };
             foreach (var (k, v) in settings) b.UseSetting(k, v);
         });
-        _ = Factory.Server; // boot: migrate + bucket
+        _ = Factory.Server; // boot the app (migrations, bucket)
     }
 
     public async Task DisposeAsync()
@@ -109,7 +109,7 @@ public sealed class KycApiFixture : IAsyncLifetime
 
     public HttpClient Anonymous() => Factory.CreateClient();
 
-    // ---------- Journey helpers ----------
+    // Journey helpers
 
     public async Task<(Guid SessionId, string Token)> CreateSessionAsync(string? idempotencyKey = null, string? ip = null)
     {

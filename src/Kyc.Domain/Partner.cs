@@ -1,25 +1,19 @@
 namespace Kyc.Domain;
 
-/// <summary>
-/// A tenant: one bank or fintech that creates verification sessions. Onboarding a new partner is a row insert, not a
-/// deploy. A partner only ever sees its own sessions.
-/// </summary>
+// A tenant (bank or fintech). Only sees its own sessions.
 public class Partner
 {
     private Partner() { } // EF
 
-    /// <summary>Stable slug, e.g. "demo-bank". Stored on every session it creates.</summary>
+    // Slug, e.g. "demo-bank".
     public string Id { get; private set; } = default!;
     public string Name { get; private set; } = default!;
     public bool IsActive { get; private set; }
 
-    /// <summary>
-    /// Days after a final decision before this partner's document and selfie images are purged. Configurable per
-    /// partner because the bank, as the FICA accountable institution, decides how long records are needed.
-    /// </summary>
+    // Days after the decision before images are purged. Per partner since the bank owns FICA retention.
     public int ImageRetentionDays { get; private set; }
 
-    /// <summary>Where decision webhooks would be delivered. Webhook delivery is designed, not built (see docs).</summary>
+    // Webhook delivery isn't built yet.
     public string? WebhookUrl { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
@@ -40,7 +34,7 @@ public class Partner
         };
     }
 
-    /// <summary>Adds a key. A partner can hold several, so keys rotate without downtime (add new, switch, revoke old).</summary>
+    // Several keys allowed so they can rotate without downtime.
     public PartnerApiKey AddApiKey(string keyHash, string keyPrefix, DateTimeOffset now)
     {
         var key = PartnerApiKey.Create(Id, keyHash, keyPrefix, now);
@@ -49,7 +43,7 @@ public class Partner
     }
 }
 
-/// <summary>An API key for a partner. Only the SHA-256 hash is stored; the prefix helps support identify a key safely.</summary>
+// Only the SHA-256 hash is stored. The prefix lets support identify a key.
 public class PartnerApiKey
 {
     private PartnerApiKey() { } // EF

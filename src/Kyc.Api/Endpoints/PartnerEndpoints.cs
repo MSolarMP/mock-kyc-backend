@@ -14,7 +14,7 @@ using Npgsql;
 
 namespace Kyc.Api.Endpoints;
 
-/// <summary>Server-to-server API for the onboarding system that owns the customer relationship.</summary>
+/// <summary>Server-to-server API for the partner's onboarding system.</summary>
 public static class PartnerEndpoints
 {
     public static void MapPartnerEndpoints(this IEndpointRouteBuilder app)
@@ -72,7 +72,7 @@ public static class PartnerEndpoints
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         {
-            // Two concurrent retries with the same key: the loser replays the winner's session.
+            // Lost a race with a retry on the same key, so replay the winner's session.
             db.ChangeTracker.Clear();
             existing = await FindByIdempotencyKey(db, partnerId, idempotencyKey, ct);
             return await Replay(existing!, requestHash, request, db, now, ct);
@@ -95,7 +95,7 @@ public static class PartnerEndpoints
                 "This Idempotency-Key was already used with a different request body.");
         existing.EnsureUsableByCustomer(now);
 
-        // Token plaintext is never stored, so a replay issues a fresh one. The earlier token stays valid.
+        // Plaintext isn't stored, so a replay issues a fresh token. The old one stays valid.
         var (token, entity) = AccessTokens.Issue(db, existing, request.Channel, false,
             request.Customer?.IpAddress, request.Customer?.UserAgent, request.Customer?.DeviceFingerprint, now);
         await db.SaveChangesAsync(ct);
@@ -123,7 +123,7 @@ public static class PartnerEndpoints
             e.CorrelationId, e.OccurredAt, JsonDocument.Parse(e.Data).RootElement)));
     }
 
-    /// <summary>Partners (and their reviewers) see only their own sessions. Someone else's session returns 404, not 403, so ids can't be probed across tenants.</summary>
+    /// <summary>Another partner's session returns 404, not 403, so ids can't be probed.</summary>
     internal static async Task<VerificationSession> LoadVisibleSession(KycDbContext db, ClaimsPrincipal user,
         Guid sessionId, CancellationToken ct, bool includeChildren = true)
     {

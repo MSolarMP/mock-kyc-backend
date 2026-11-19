@@ -16,11 +16,8 @@ public sealed class RetentionOptions
     public int SweepIntervalSeconds { get; set; } = 60;
 }
 
-/// <summary>
-/// Periodic housekeeping: expire abandoned sessions, and purge images past their partner's retention period
-/// (<see cref="Partner.ImageRetentionDays"/>; data minimisation under POPIA/GDPR). Decisions, check results and the
-/// audit trail are kept: they hold no images and no readable identity.
-/// </summary>
+// Expires abandoned sessions and purges images past the partner's retention period (POPIA/GDPR).
+// Decisions and audit rows are kept since they hold no images or readable identity.
 public sealed class MaintenanceService(
     IServiceScopeFactory scopes,
     IOptions<RetentionOptions> options,
@@ -65,7 +62,7 @@ public sealed class MaintenanceService(
         foreach (var s in lapsed) s.TransitionTo(SessionStatus.Expired, now, "customer_inactive");
         if (lapsed.Count > 0)
         {
-            // Rows a customer touched in the meantime fail the xmin check and get picked up next sweep.
+            // Rows changed in the meantime fail the xmin check and get picked up next sweep.
             try { await db.SaveChangesAsync(ct); }
             catch (DbUpdateConcurrencyException) { logger.LogInformation("Expiry sweep raced with customer activity; will retry"); }
             logger.LogInformation("Expired {Count} abandoned sessions", lapsed.Count);
@@ -81,7 +78,7 @@ public sealed class MaintenanceService(
         ((RequestContext)scope.ServiceProvider.GetRequiredService<IRequestContext>())
             .SetActor(ActorType.System, "retention");
 
-        // Retention is per partner. The partner list is small, so one bounded query per partner keeps the SQL simple.
+        // Retention is per partner. Few partners, so one query each keeps it simple.
         var now = clock.GetUtcNow();
         var partners = await db.Partners.AsNoTracking()
             .Select(p => new { p.Id, p.ImageRetentionDays })
@@ -105,7 +102,7 @@ public sealed class MaintenanceService(
         {
             foreach (var artifact in session.Artifacts.Where(a => a.Status != ArtifactStatus.Purged))
             {
-                await storage.DeleteAsync(artifact.StorageKey, ct); // Idempotent: deleting a missing key succeeds.
+                await storage.DeleteAsync(artifact.StorageKey, ct); // Deleting a missing key is fine.
                 artifact.MarkPurged(clock.GetUtcNow());
                 session.Record(AuditEventTypes.ArtifactPurged, new { artifactId = artifact.Id, reason = "retention_policy" });
                 purged++;

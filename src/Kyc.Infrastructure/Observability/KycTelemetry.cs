@@ -3,10 +3,7 @@ using System.Diagnostics.Metrics;
 
 namespace Kyc.Infrastructure.Observability;
 
-/// <summary>
-/// Business and workflow metrics. These answer the operational questions: is throughput keeping up (job lag),
-/// is a vendor degrading (call outcomes/latency), and is the approval rate drifting (decisions by outcome).
-/// </summary>
+// Job lag, vendor call outcomes/latency and decisions by outcome.
 public sealed class KycMetrics
 {
     public const string MeterName = "Kyc";

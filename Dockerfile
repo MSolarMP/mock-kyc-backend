@@ -12,8 +12,7 @@ RUN dotnet publish src/Kyc.Api/Kyc.Api.csproj -c Release -o /app --no-restore
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app .
-# Non-root user shipped with the .NET images
+# non-root user from the .NET base image
 USER $APP_UID
-ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "Kyc.Api.dll"]

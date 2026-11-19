@@ -2,9 +2,9 @@ using Kyc.Domain;
 
 namespace Kyc.Api.Contracts;
 
-// ---------- Partner (server-to-server) ----------
+// Partner (server-to-server)
 
-/// <summary>Context about the end customer, supplied by the partner backend (it sees the customer's request; we don't).</summary>
+/// <summary>Customer details passed on by the partner backend, since we never see the customer's request.</summary>
 public sealed record CustomerContext(string? IpAddress, string? UserAgent, string? DeviceFingerprint);
 
 public sealed record CreateSessionRequest(string ApplicantReference, Channel Channel, CustomerContext? Customer);
@@ -13,7 +13,7 @@ public sealed record CreateSessionResponse(
     Guid SessionId,
     SessionStatus Status,
     DateTimeOffset ExpiresAt,
-    // Bearer token for the customer's device. Hand it to the front end; it is never retrievable again.
+    // Only returned once. Hand it to the front end.
     string ClientToken,
     DateTimeOffset ClientTokenExpiresAt);
 
@@ -47,12 +47,9 @@ public sealed record SessionView(
 public sealed record AuditEventView(long Id, string EventType, ActorType ActorType, string? ActorId,
     string? CorrelationId, DateTimeOffset OccurredAt, System.Text.Json.JsonElement Data);
 
-// ---------- Customer device ----------
+// Customer device
 
-/// <summary>
-/// What the customer's UI needs, and nothing more. Reason codes and scores are left out on purpose: telling a
-/// fraudster *why* they failed helps them tune the next attempt.
-/// </summary>
+/// <summary>No reason codes or scores here, so a fraudster can't tune the next attempt.</summary>
 public sealed record ClientSessionView(
     SessionStatus Status,
     string NextAction,
@@ -61,7 +58,7 @@ public sealed record ClientSessionView(
     int SelfieAttemptsRemaining,
     DateTimeOffset ExpiresAt);
 
-/// <summary>The front end renders <see cref="HandoffUrl"/> as a QR code for the second device to scan.</summary>
+/// <summary>Front end shows <see cref="HandoffUrl"/> as a QR code for the second device.</summary>
 public sealed record CreateHandoffResponse(string HandoffUrl, DateTimeOffset ExpiresAt);
 
 public sealed record RedeemHandoffRequest(string Token, string? DeviceFingerprint);
@@ -77,7 +74,7 @@ public sealed record CreateArtifactResponse(
     IReadOnlyDictionary<string, string> UploadHeaders,
     DateTimeOffset ExpiresAt);
 
-// ---------- Reviewer ----------
+// Reviewer
 
 public sealed record ReviewQueueItem(Guid SessionId, string ApplicantReference,
     IReadOnlyList<string> ReasonCodes, int? RiskScore, DateTimeOffset WaitingSince);
@@ -90,10 +87,7 @@ public sealed record ExtractedIdentityView(string FullName, DateOnly DateOfBirth
 
 public sealed record ArtifactLink(Guid ArtifactId, ArtifactType Type, string Url, DateTimeOffset ExpiresAt);
 
-/// <summary>
-/// Other sessions of the same partner that share the same document (by HMAC). Investigators use this to spot repeat
-/// attempts after a rejection. Matching across partners is a data-sharing (POPIA) question, so it is left out.
-/// </summary>
+/// <summary>Same partner's sessions with the same document (by HMAC). Not matched across partners (POPIA).</summary>
 public sealed record RelatedSessionView(Guid SessionId, SessionStatus Status, DateTimeOffset CreatedAt);
 
 public sealed record ReviewDecisionRequest(DecisionOutcome Outcome, string ReasonCode, string? Notes);

@@ -1,26 +1,18 @@
 namespace Kyc.Domain;
 
-/// <summary>
-/// Coarse lifecycle state of a verification session. Fine-grained step results live in
-/// <see cref="ProviderCheck"/> rows; the status answers "what is the session waiting for?".
-/// </summary>
+// What the session is waiting for. Per-check results live in ProviderCheck.
 public enum SessionStatus
 {
-    /// <summary>Session exists; waiting for the customer to upload an identity document.</summary>
+    // Waiting for the ID document.
     Created,
-    /// <summary>Document uploaded; document validation is queued or running.</summary>
     DocumentSubmitted,
-    /// <summary>Document accepted; waiting for the customer to upload a selfie.</summary>
     AwaitingSelfie,
-    /// <summary>Selfie uploaded; liveness and face match are queued or running.</summary>
     SelfieSubmitted,
-    /// <summary>All checks finished; risk assessment and decision are queued or running.</summary>
     PendingDecision,
-    /// <summary>Automation could not decide; waiting for a human reviewer.</summary>
     ManualReview,
     Approved,
     Rejected,
-    /// <summary>Customer abandoned the journey before completing it.</summary>
+    // Customer abandoned the flow.
     Expired,
 }
 
@@ -39,13 +31,12 @@ public enum ArtifactType
 
 public enum ArtifactStatus
 {
-    /// <summary>Upload URL issued; bytes not yet confirmed in storage.</summary>
+    // Upload URL issued, bytes not confirmed yet.
     PendingUpload,
-    /// <summary>Upload confirmed by the client and verified against storage.</summary>
     Uploaded,
-    /// <summary>Replaced by a newer upload of the same type (e.g. recapture).</summary>
+    // Replaced by a newer upload, e.g. a recapture.
     Superseded,
-    /// <summary>Binary deleted from storage under the retention policy; metadata kept for audit.</summary>
+    // File deleted by retention. Metadata kept for audit.
     Purged,
 }
 
@@ -59,11 +50,11 @@ public enum CheckType
 public enum CheckOutcome
 {
     Passed,
-    /// <summary>Definitive negative result (tampered document, spoof, different person).</summary>
+    // Tampered document, spoof or different person.
     Failed,
-    /// <summary>The image could not be processed (blur, glare, cropping). The customer may recapture.</summary>
+    // Bad image (blur, glare). Customer can recapture.
     Unreadable,
-    /// <summary>The provider returned a result, but not a confident one. Routed to a human.</summary>
+    // Low-confidence result. Goes to a human.
     Inconclusive,
 }
 

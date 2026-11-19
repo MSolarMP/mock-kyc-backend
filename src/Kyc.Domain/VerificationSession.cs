@@ -1,11 +1,7 @@
 namespace Kyc.Domain;
 
-/// <summary>
-/// Aggregate root for one verification attempt. State changes go through methods on this class,
-/// which enforce <see cref="SessionStateMachine"/> and record a <see cref="SessionEvent"/>.
-/// The persistence layer turns those events into append-only audit rows in the
-/// same transaction as the state change, so the audit trail can't drift from the data.
-/// </summary>
+// All state changes go through here. Events are saved as audit rows in the same
+// transaction, so the audit trail can't drift from the data.
 public class VerificationSession
 {
     public const int MaxDocumentAttempts = 3;
@@ -17,10 +13,9 @@ public class VerificationSession
 
     public Guid Id { get; private set; }
 
-    /// <summary>The calling system's reference for the applicant (e.g. its customer/application id). Not PII.</summary>
+    // The partner's own id for the applicant. Not PII.
     public string ApplicantReference { get; private set; } = default!;
 
-    /// <summary>The partner (tenant) that created the session. Partners can only see their own sessions.</summary>
     public string PartnerId { get; private set; } = default!;
 
     public Channel Channel { get; private set; }
@@ -34,25 +29,22 @@ public class VerificationSession
     public DateTimeOffset ExpiresAt { get; private set; }
     public DateTimeOffset? CompletedAt { get; private set; }
 
-    /// <summary>Idempotency key supplied on creation, unique per partner. A retried create returns the same session.</summary>
+    // Unique per partner. A retried create returns the same session.
     public string IdempotencyKey { get; private set; } = default!;
     public string IdempotencyRequestHash { get; private set; } = default!;
 
-    // ---- Fraud / investigation signals (captured now so detection can be added later) ----
+    // Fraud signals, captured now for detection later.
     public string? CreatedIp { get; private set; }
     public string? CreatedUserAgent { get; private set; }
     public string? DeviceFingerprint { get; private set; }
 
-    /// <summary>
-    /// Keyed HMAC of the document number. Lets us find "same identity document, different session"
-    /// (repeat attempts after a rejection, synthetic identities) without storing the number in plaintext.
-    /// </summary>
+    // Keyed HMAC, so we can spot the same document across sessions without storing the number.
     public string? DocumentNumberHash { get; private set; }
 
-    /// <summary>Data extracted from the document (name, DOB, ...), encrypted at the field level.</summary>
+    // Name, DOB etc. Encrypted at field level.
     public byte[]? ExtractedIdentityEncrypted { get; private set; }
 
-    /// <summary>Optimistic concurrency token (Postgres xmin). Two devices writing the same session can't overwrite each other.</summary>
+    // Postgres xmin. Stops two devices overwriting each other.
     public uint Version { get; private set; }
 
     public List<Artifact> Artifacts { get; private set; } = [];
@@ -102,7 +94,6 @@ public class VerificationSession
     public bool HasLapsed(DateTimeOffset now) =>
         SessionStateMachine.IsAwaitingCustomer(Status) && now >= ExpiresAt;
 
-    /// <summary>Guard for customer-facing operations.</summary>
     public void EnsureUsableByCustomer(DateTimeOffset now)
     {
         if (Status == SessionStatus.Expired || HasLapsed(now))
@@ -123,7 +114,6 @@ public class VerificationSession
         Record(AuditEventTypes.StatusChanged, new { from = from.ToString(), to = target.ToString(), reason });
     }
 
-    /// <summary>Called when the customer confirms an upload. Advances the workflow and counts the attempt.</summary>
     public void SubmitArtifact(Artifact artifact, DateTimeOffset now)
     {
         switch (artifact.Type)
@@ -143,7 +133,6 @@ public class VerificationSession
         }
     }
 
-    /// <summary>Which artifact type the session will accept right now, if any.</summary>
     public ArtifactType? ExpectedArtifact => Status switch
     {
         SessionStatus.Created => ArtifactType.IdentityDocument,
@@ -158,7 +147,7 @@ public class VerificationSession
             throw new SessionStateConflictException("unexpected_artifact",
                 $"A {type} upload is not expected while the session is {Status}.");
 
-        // Supersede any earlier upload of the same type that never completed.
+        // Drop any earlier upload of this type that never finished.
         foreach (var stale in Artifacts.Where(a => a.Type == type && a.Status == ArtifactStatus.PendingUpload))
             stale.MarkSuperseded();
 
@@ -209,5 +198,5 @@ public class VerificationSession
     public void ClearPendingEvents() => _pendingEvents.Clear();
 }
 
-/// <summary>Something that happened to a session, waiting to be persisted as an audit event.</summary>
+// Becomes an audit event on save.
 public sealed record SessionEvent(Guid SessionId, string EventType, object? Data);

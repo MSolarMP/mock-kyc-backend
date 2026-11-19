@@ -33,7 +33,7 @@ public sealed class ValidateDocumentHandler(
         var payload = job.ReadPayload<ArtifactJobPayload>();
         var session = await LoadSessionAsync(db, job.SessionId, ct);
 
-        // Idempotency guard: on a redelivery after the work committed, the session has already moved on.
+        // Redelivered job: the session already moved on.
         if (session is null || session.Status != SessionStatus.DocumentSubmitted
             || session.Checks.Any(c => c.ArtifactId == payload.ArtifactId && c.Type == CheckType.DocumentValidation))
         {
@@ -62,7 +62,7 @@ public sealed class ValidateDocumentHandler(
 
             if (result.Identity is { } identity)
             {
-                // PII: store the document number only as a keyed hash; encrypt the rest at the field level.
+                // Document number stored as a keyed hash, the rest encrypted.
                 session.RecordExtractedIdentity(
                     hasher.Hash(identity.DocumentNumber),
                     protector.Protect(JsonSerializer.Serialize(identity, KycDbContext.Json)));

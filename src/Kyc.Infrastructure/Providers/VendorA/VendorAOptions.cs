@@ -5,17 +5,14 @@ public sealed class VendorAOptions
     public const string Section = "Providers:VendorA";
     public const string Name = "vendor-a";
 
-    /// <summary>Vendor A's API base URL and key. Unused by the sandbox client; a real HTTP client would need them.</summary>
+    // Not used by the sandbox client.
     public string BaseUrl { get; set; } = "https://api.vendor-a.example/v3";
     public string ApiKey { get; set; } = "";
 
-    /// <summary>Artificial latency in the sandbox client, so async behaviour and queue lag show up in demos.</summary>
+    /// <summary>Fake latency so queue lag shows up in demos.</summary>
     public int SandboxLatencyMs { get; set; } = 300;
 
-    /// <summary>
-    /// Decision thresholds calibrated for Vendor A's scores (normalised to 0–1). They belong to the vendor, not the
-    /// decision engine: another vendor's 0.85 does not mean the same thing, so switching vendors means recalibrating.
-    /// </summary>
+    // Thresholds live with the vendor: another vendor's 0.85 means something else.
     public VendorAThresholds Thresholds { get; set; } = new();
 }
 

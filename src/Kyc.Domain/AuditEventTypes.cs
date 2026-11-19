@@ -1,6 +1,6 @@
 namespace Kyc.Domain;
 
-/// <summary>Stable event names. Treat them as a public contract: compliance reports and fraud tooling query on them.</summary>
+// Reports and fraud tooling query these names, so don't rename them.
 public static class AuditEventTypes
 {
     public const string SessionCreated = "session.created";

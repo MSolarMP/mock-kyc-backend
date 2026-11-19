@@ -1,12 +1,8 @@
 namespace Kyc.Domain.Decisioning;
 
-/// <summary>Summary of one provider check, as the decision engine sees it.</summary>
 public sealed record CheckSummary(CheckOutcome Outcome, decimal? Score, IReadOnlyList<string> ReasonCodes);
 
-/// <summary>
-/// Signals taken from history across sessions. This is where fraud detection hooks in: today a few simple
-/// counts; later, scores from a device-intelligence or fraud vendor can be added to this record.
-/// </summary>
+// Cross-session fraud signals. Add fraud vendor scores here later.
 public sealed record RiskSignals(
     int PriorRejectionsForSameDocument,
     int OpenSessionsForSameDocument,
@@ -26,7 +22,7 @@ public sealed record DecisionResult(
     int RiskScore,
     string RulesVersion);
 
-/// <summary>Thresholds come from configuration so risk/compliance can tune them without a code change.</summary>
+// Loaded from config so thresholds can change without a deploy.
 public sealed record DecisionPolicy
 {
     public decimal FaceMatchApproveThreshold { get; init; } = 0.85m;
@@ -36,11 +32,7 @@ public sealed record DecisionPolicy
     public string RulesVersion { get; init; } = "rules-2026.11.1";
 }
 
-/// <summary>
-/// Turns check results and risk signals into an outcome. Pure and deterministic: the same input always gives
-/// the same output, and every outcome comes with machine-readable reason codes for auditors and reviewers.
-/// Order of precedence: any hard-reject rule beats manual review, which beats approval.
-/// </summary>
+// Pure function of its input. Reject beats manual review, which beats approve.
 public sealed class DecisionEngine(DecisionPolicy policy)
 {
     public DecisionPolicy Policy { get; } = policy;
@@ -51,7 +43,7 @@ public sealed class DecisionEngine(DecisionPolicy policy)
         var review = new List<string>();
         var risk = 0;
 
-        // --- Document ---
+        // Document
         switch (input.Document?.Outcome)
         {
             case null:
@@ -68,12 +60,11 @@ public sealed class DecisionEngine(DecisionPolicy policy)
             reject.Add(ReasonCodes.DocumentExpired); risk += 40;
         }
 
-        // --- Liveness ---
-        // An "Unreadable" liveness result only reaches the engine once the customer has used up their recaptures.
+        // Liveness. Unreadable only gets here once recaptures are used up.
         switch (input.Liveness?.Outcome)
         {
             case null when input.Document?.Outcome is CheckOutcome.Failed:
-                break; // Liveness is skipped once the document has hard-failed; that isn't a gap.
+                break; // skipped after a hard document fail
             case null:
                 review.Add(ReasonCodes.LivenessCheckMissing); risk += 30; break;
             case CheckOutcome.Failed:
@@ -86,7 +77,7 @@ public sealed class DecisionEngine(DecisionPolicy policy)
                 review.Add(ReasonCodes.LivenessLowConfidence); risk += 15; break;
         }
 
-        // --- Face match ---
+        // Face match
         var faceSkipped = input.Document?.Outcome is CheckOutcome.Failed
                           || input.Liveness?.Outcome is CheckOutcome.Failed or CheckOutcome.Unreadable;
         if (input.FaceMatch is null)
@@ -104,7 +95,7 @@ public sealed class DecisionEngine(DecisionPolicy policy)
             review.Add(ReasonCodes.FaceMatchLowConfidence); risk += 20;
         }
 
-        // --- Cross-session fraud signals: send to a human, never auto-reject on these alone ---
+        // Fraud signals only send to review, never auto-reject.
         if (input.Signals.PriorRejectionsForSameDocument > 0)
         {
             review.Add(ReasonCodes.RepeatAttemptAfterRejection); risk += 25;

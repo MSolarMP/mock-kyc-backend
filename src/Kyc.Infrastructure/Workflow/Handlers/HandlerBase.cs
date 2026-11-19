@@ -12,7 +12,6 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Infrastructure.Workflow.Handlers;
 
-/// <summary>Shared plumbing for workflow handlers: loading sessions, integrity checks, recording results, routing on exhaustion.</summary>
 public abstract class HandlerBase(
     IObjectStorage storage,
     IOptions<StorageOptions> storageOptions,
@@ -37,10 +36,7 @@ public abstract class HandlerBase(
     protected Task<Uri> DownloadUrlAsync(Artifact a) =>
         storage.CreateDownloadUrlAsync(a.StorageKey, TimeSpan.FromSeconds(storageOptions.Value.DownloadUrlTtlSeconds));
 
-    /// <summary>
-    /// Re-hashes the stored bytes against the hash the client declared before any vendor sees them. This catches
-    /// a file swapped after upload, or one corrupted in transit.
-    /// </summary>
+    // Re-hash stored bytes against the declared hash to catch a swapped or corrupted file.
     protected async Task<bool> VerifyIntegrityAsync(VerificationSession session, Artifact artifact, CancellationToken ct)
     {
         if (artifact.IntegrityVerified) return true;
@@ -85,10 +81,7 @@ public abstract class HandlerBase(
         db.Enqueue(session.Id, JobType.AssessRiskAndDecide, new EmptyPayload(), requestContext.CorrelationId, clock.GetUtcNow());
     }
 
-    /// <summary>
-    /// A vendor stayed unavailable through every retry. We never auto-reject a customer because our dependency failed:
-    /// the session goes to a human, with the reason recorded.
-    /// </summary>
+    // Vendor down after all retries. Don't reject the customer for our outage; send it to a human.
     protected async Task RouteToManualReviewAsync(KycDbContext db, WorkflowJob job, Exception error, CancellationToken ct)
     {
         var session = await LoadSessionAsync(db, job.SessionId, ct);

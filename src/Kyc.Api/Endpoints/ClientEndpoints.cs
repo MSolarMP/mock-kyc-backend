@@ -15,10 +15,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Api.Endpoints;
 
-/// <summary>
-/// Customer-device API (web, mobile web, native app). Authenticated with the session-bound bearer token, so there
-/// is no session id in any route.
-/// </summary>
+/// <summary>Customer device API. Auth is the session-bound token, so no route takes a session id.</summary>
 public static partial class ClientEndpoints
 {
     private static readonly HashSet<string> AllowedContentTypes = ["image/jpeg", "image/png"];
@@ -63,7 +60,7 @@ public static partial class ClientEndpoints
         if (session.IsTerminal || session.Status == SessionStatus.ManualReview)
             throw new SessionStateConflictException("session_complete", "There is nothing left for the customer to do.");
 
-        // At most one live QR per session: issuing a new one revokes earlier unredeemed ones (e.g. a page refresh).
+        // One live QR per session. A new one revokes any unredeemed ones (e.g. page refresh).
         var live = await db.HandoffTokens
             .Where(h => h.SessionId == session.Id && h.RedeemedAt == null && h.RevokedAt == null && h.ExpiresAt > now)
             .ToListAsync(ct);
@@ -77,8 +74,7 @@ public static partial class ClientEndpoints
         await db.SaveChangesAsync(ct);
         metrics.Handoff("issued");
 
-        // Token in the URL *fragment*: browsers don't send fragments to servers, so it stays out of access logs,
-        // proxies and Referer headers. The front end renders the URL as a QR code.
+        // Token goes in the URL fragment. Browsers don't send fragments, so it stays out of logs and Referer headers.
         var url = $"{options.Value.HandoffBaseUrl}#token={token}";
         return Results.Ok(new CreateHandoffResponse(url, handoff.ExpiresAt));
     }
@@ -90,14 +86,14 @@ public static partial class ClientEndpoints
         if (string.IsNullOrWhiteSpace(request.Token) || request.Token.Length > 100)
             return Problems.Validation((nameof(request.Token), "Required."));
 
-        // Unauthenticated until the token checks out: attribute any audit events to an anonymous device.
+        // Not authenticated yet, so audit events go to an anonymous device.
         requestContext.SetActor(ActorType.Customer, "anonymous");
         var hash = Tokens.Hash(request.Token);
         var now = clock.GetUtcNow();
         var ip = requestContext.IpAddress;
         var ua = requestContext.UserAgent;
 
-        // Atomic single-use: only one concurrent redeem can flip redeemed_at from NULL.
+        // Single use: only one concurrent redeem can flip redeemed_at from NULL.
         var claimed = await db.HandoffTokens
             .Where(h => h.TokenHash == hash && h.RedeemedAt == null && h.RevokedAt == null && h.ExpiresAt > now)
             .ExecuteUpdateAsync(s => s
@@ -111,7 +107,7 @@ public static partial class ClientEndpoints
             metrics.Handoff("rejected");
             if (handoff is not null)
             {
-                // A known token replayed or used late: worth recording as a possible signal of a stolen QR.
+                // Known token replayed or used late. Could be a stolen QR, so record it.
                 var target = await db.Sessions.SingleAsync(s => s.Id == handoff.SessionId, ct);
                 target.Record(AuditEventTypes.HandoffRedeemFailed, new
                 {
@@ -122,7 +118,7 @@ public static partial class ClientEndpoints
                 await db.SaveChangesAsync(ct);
             }
             loggers.CreateLogger("Handoff").LogWarning("Handoff redeem rejected");
-            // Same response for unknown, used and expired tokens: don't help anyone probe for valid ones.
+            // Same error for unknown, used and expired tokens so nobody can probe for valid ones.
             throw new BusinessRuleException("handoff_invalid", "This link is invalid or has expired. Generate a new QR code.");
         }
 
@@ -186,7 +182,7 @@ public static partial class ClientEndpoints
         var artifact = session.Artifacts.SingleOrDefault(a => a.Id == artifactId)
                        ?? throw new NotFoundException("Artifact");
 
-        // Idempotent: a retried "complete" (lost response, double tap) gets the same answer.
+        // A retried complete (lost response, double tap) gets the same answer.
         if (artifact.Status == ArtifactStatus.Uploaded)
             return Results.Accepted(value: session.ToClientView(now));
         if (artifact.Status != ArtifactStatus.PendingUpload)
@@ -194,7 +190,7 @@ public static partial class ClientEndpoints
 
         session.EnsureUsableByCustomer(now);
 
-        // Trust but verify: the object must exist, and its size and type must match what was declared.
+        // Check the object exists and matches the declared size and type.
         // The worker re-hashes the bytes before any vendor sees them.
         var meta = await storage.GetMetadataAsync(artifact.StorageKey, ct)
                    ?? throw new BusinessRuleException("upload_not_found", "No uploaded file was found. Upload it to the URL first.");
@@ -216,7 +212,7 @@ public static partial class ClientEndpoints
         var jobType = artifact.Type == ArtifactType.IdentityDocument ? JobType.ValidateDocument : JobType.CheckLiveness;
         db.Enqueue(session.Id, jobType, new ArtifactJobPayload(artifact.Id), requestContext.CorrelationId, now);
 
-        // State change + audit + job, all in one transaction.
+        // State change, audit and job in one transaction.
         await db.SaveChangesAsync(ct);
         metrics.ArtifactUploaded(artifact.Type.ToString());
         return Results.Accepted(value: session.ToClientView(now));

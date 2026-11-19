@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Infrastructure.Workflow.Handlers;
 
-/// <summary>Liveness runs before face match: matching a face that might be a photo of a photo would waste a vendor call.</summary>
+// Liveness runs first so we don't pay for a face match on a spoof.
 public sealed class CheckLivenessHandler(
     ILivenessProvider provider,
     IObjectStorage storage,
@@ -60,7 +60,7 @@ public sealed class CheckLivenessHandler(
         switch (WorkflowRules.AfterLivenessCheck(outcome, session.SelfieAttempts))
         {
             case NextStep.Continue:
-                // Status stays SelfieSubmitted. Face match is the next job in the same phase.
+                // Status stays SelfieSubmitted; face match runs next.
                 db.Enqueue(session.Id, JobType.MatchFace, new ArtifactJobPayload(selfie.Id), _ctx.CorrelationId, now);
                 break;
             case NextStep.RequestRecapture:

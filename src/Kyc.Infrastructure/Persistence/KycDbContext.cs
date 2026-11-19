@@ -23,7 +23,7 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
 
     protected override void ConfigureConventions(ModelConfigurationBuilder b)
     {
-        // Store enums as readable strings: audit queries and ad-hoc investigations shouldn't need a lookup table.
+        // Enums as strings so audit queries are readable without a lookup table.
         b.Properties<SessionStatus>().HaveConversion<string>().HaveMaxLength(32);
         b.Properties<Channel>().HaveConversion<string>().HaveMaxLength(16);
         b.Properties<ArtifactType>().HaveConversion<string>().HaveMaxLength(32);
@@ -55,7 +55,7 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.Property(x => x.PartnerId).HasMaxLength(64);
             e.Property(x => x.KeyHash).HasMaxLength(64);
             e.Property(x => x.KeyPrefix).HasMaxLength(16);
-            // Auth looks keys up by hash on every partner request.
+            // Auth looks up by hash on every request.
             e.HasIndex(x => x.KeyHash).IsUnique();
         });
 
@@ -71,7 +71,7 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.Property(x => x.CreatedUserAgent).HasMaxLength(512);
             e.Property(x => x.DeviceFingerprint).HasMaxLength(128);
             e.Property(x => x.DocumentNumberHash).HasMaxLength(64);
-            e.Property(x => x.Version).IsRowVersion(); // Maps to Postgres xmin
+            e.Property(x => x.Version).IsRowVersion(); // Postgres xmin
             e.Ignore(x => x.PendingEvents);
             e.Ignore(x => x.IsTerminal);
             e.Ignore(x => x.ExpectedArtifact);
@@ -79,11 +79,11 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.HasIndex(x => new { x.PartnerId, x.IdempotencyKey }).IsUnique();
             e.HasIndex(x => new { x.PartnerId, x.ApplicantReference });
             e.HasOne<Partner>().WithMany().HasForeignKey(x => x.PartnerId).OnDelete(DeleteBehavior.Restrict);
-            // Review queue, expiry sweeps, dashboards
+            // Review queue and expiry sweeps
             e.HasIndex(x => new { x.Status, x.UpdatedAt });
-            // Fraud: same document seen across sessions
+            // Fraud: same document across sessions
             e.HasIndex(x => x.DocumentNumberHash).HasFilter("document_number_hash IS NOT NULL");
-            // Fraud: velocity per IP
+            // Fraud: attempts per IP
             e.HasIndex(x => new { x.CreatedIp, x.CreatedAt });
 
             e.HasMany(x => x.Artifacts).WithOne().HasForeignKey(x => x.SessionId);
@@ -98,7 +98,7 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.Property(x => x.StorageKey).HasMaxLength(256);
             e.Property(x => x.ContentType).HasMaxLength(64);
             e.Property(x => x.DeclaredSha256).HasMaxLength(64);
-            e.HasIndex(x => x.DeclaredSha256); // Fraud: the same image reused across sessions
+            e.HasIndex(x => x.DeclaredSha256); // Fraud: same image reused
             e.HasIndex(x => new { x.Status, x.UploadedAt });
         });
 
@@ -110,7 +110,7 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.Property(x => x.ProviderReference).HasMaxLength(128);
             e.Property(x => x.Score).HasPrecision(5, 4);
             e.HasIndex(x => new { x.SessionId, x.Type });
-            // Idempotency backstop: one completed check per artifact per type
+            // One check per artifact per type, in case a job runs twice
             e.HasIndex(x => new { x.ArtifactId, x.Type }).IsUnique();
         });
 
@@ -161,9 +161,8 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.HasIndex(x => new { x.EventType, x.OccurredAt });
         });
 
-        // Guid ids are generated in the domain (UUIDv7: time-ordered, so B-tree inserts stay local). Telling EF the
-        // ids are never store-generated means a new child added through a navigation (session.Artifacts.Add) is
-        // tracked as Added, not mistaken for an existing row and UPDATEd.
+        // Ids are UUIDv7 made in the domain. Without ValueGeneratedNever, EF treats a new child
+        // added via a navigation as an existing row and tries to UPDATE it.
         foreach (var entity in m.Model.GetEntityTypes())
         {
             var key = entity.FindPrimaryKey();
@@ -178,18 +177,14 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.Property(x => x.Payload).HasColumnType("jsonb");
             e.Property(x => x.LockedBy).HasMaxLength(128);
             e.Property(x => x.CorrelationId).HasMaxLength(64);
-            // Partial index: the claim query only ever scans runnable work, so the queue stays fast as history grows.
+            // Partial index so the claim query stays fast as finished jobs pile up.
             e.HasIndex(x => x.RunAfter).HasFilter("status IN ('Pending','Running')")
                 .HasDatabaseName("ix_workflow_jobs_runnable");
             e.HasIndex(x => x.SessionId);
         });
     }
 
-    /// <summary>
-    /// Turns pending domain events into audit rows in the same
-    /// transaction as the aggregate change. The trail is complete because no code path can change state
-    /// without also writing the audit row.
-    /// </summary>
+    // Writes domain events as audit rows in the same transaction as the change, so the trail can't miss one.
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         var sessions = ChangeTracker.Entries<VerificationSession>()

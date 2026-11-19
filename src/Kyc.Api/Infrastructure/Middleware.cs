@@ -8,10 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Kyc.Api.Infrastructure;
 
-/// <summary>
-/// Takes the inbound X-Correlation-Id (or the trace id if there isn't one), echoes it back, and puts it in the log scope
-/// and the request context. From there it reaches audit events, jobs, and the worker's logs for that session.
-/// </summary>
+/// <summary>Uses the inbound X-Correlation-Id (or trace id) and carries it into logs, audit events and jobs.</summary>
 public sealed partial class CorrelationIdMiddleware(RequestDelegate next, ILogger<CorrelationIdMiddleware> logger)
 {
     public const string Header = "X-Correlation-Id";
@@ -38,7 +35,7 @@ public sealed partial class CorrelationIdMiddleware(RequestDelegate next, ILogge
     private static string? Truncate(string s, int max) => string.IsNullOrEmpty(s) ? null : s.Length <= max ? s : s[..max];
 }
 
-/// <summary>Maps exceptions to RFC 7807 problem+json with a stable machine-readable <c>code</c>. Internals never leak to clients.</summary>
+/// <summary>Maps exceptions to problem+json with a stable <c>code</c>. Internal details never reach the client.</summary>
 public sealed class ProblemExceptionHandler(IProblemDetailsService problems, ILogger<ProblemExceptionHandler> logger)
     : IExceptionHandler
 {

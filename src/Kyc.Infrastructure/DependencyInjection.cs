@@ -25,8 +25,7 @@ public static class DependencyInjection
         services.AddScoped<IRequestContext>(sp => sp.GetRequiredService<RequestContext>());
 
         services.AddDbContext<KycDbContext>(o => o
-            // No EnableRetryOnFailure: it forbids explicit transactions, and transient
-            // DB failures already surface as job retries (worker) or a 503 the client can retry (API).
+            // No EnableRetryOnFailure: it blocks explicit transactions. Jobs retry anyway, and the API returns 503.
             .UseNpgsql(config.GetConnectionString("Kyc"))
             .UseSnakeCaseNamingConvention());
 
@@ -52,7 +51,6 @@ public static class DependencyInjection
         return services;
     }
 
-    /// <summary>Background processing: the workflow job processor and maintenance sweeps.</summary>
     public static IServiceCollection AddKycWorker(this IServiceCollection services)
     {
         services.AddHostedService<JobProcessor>();
@@ -60,11 +58,8 @@ public static class DependencyInjection
         return services;
     }
 
-    /// <summary>
-    /// Picks the vendor adapter per capability from config ("Providers:Document" = "vendor-a" | "vendor-b" ...), wraps each
-    /// in the same resilience decorator (timeout + circuit breaker), and takes the decision thresholds from the vendor
-    /// that produces the scores. Adding Vendor B = a new adapter folder + a case here + config.
-    /// </summary>
+    // Vendor per capability comes from config (e.g. "Providers:Document": "vendor-a").
+    // To add a vendor: new adapter folder, a case here, and config.
     private static void AddProviders(IServiceCollection services, IConfiguration config)
     {
         var resilience = config.GetSection(ProviderResilienceOptions.Section).Get<ProviderResilienceOptions>()
@@ -87,7 +82,7 @@ public static class DependencyInjection
         services.AddSingleton<IFaceMatchProvider>(sp => new ResilientFaceMatchProvider(
             sp.GetRequiredService<VendorAAdapter>(), ProviderResilience.Build(VendorAOptions.Name + ":facematch", resilience)));
 
-        // Business rules (velocity limits, rules version) come from "Decisioning"; score thresholds from the vendor.
+        // Business rules come from "Decisioning", score thresholds from the vendor.
         services.AddSingleton(sp =>
         {
             var policy = config.GetSection("Decisioning").Get<DecisionPolicy>() ?? new DecisionPolicy();

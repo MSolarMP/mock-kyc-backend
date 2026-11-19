@@ -26,20 +26,14 @@ public interface IJobHandler
 {
     JobType Type { get; }
 
-    /// <summary>
-    /// Do the work by changing tracked entities on <paramref name="db"/>. Don't call SaveChanges: the processor saves
-    /// the handler's changes and the job's completion together, in one transaction.
-    /// </summary>
+    /// <summary>Don't call SaveChanges. The processor saves your changes and the job completion together.</summary>
     Task HandleAsync(WorkflowJob job, KycDbContext db, CancellationToken ct);
 
-    /// <summary>Called once when retries run out, before the job is dead-lettered. Must leave the session in a state that can make progress.</summary>
+    /// <summary>Called once retries run out. Must leave the session able to move on.</summary>
     Task OnExhaustedAsync(WorkflowJob job, KycDbContext db, Exception error, CancellationToken ct);
 }
 
-/// <summary>
-/// Polls the Postgres job queue and runs handlers. Scale out by running more worker replicas: SKIP LOCKED
-/// spreads jobs between them with no coordinator.
-/// </summary>
+// Polls the job queue. Run more replicas to scale; SKIP LOCKED stops them clashing.
 public sealed class JobProcessor(
     IServiceScopeFactory scopes,
     IOptions<WorkerOptions> options,
@@ -47,7 +41,7 @@ public sealed class JobProcessor(
     KycMetrics metrics,
     ILogger<JobProcessor> logger) : BackgroundService
 {
-    // Unique per process; stored in locked_by so an operator can see which instance holds a job.
+    // Stored in locked_by so you can see which instance holds a job.
     private readonly string _workerId = Truncate($"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}", 128);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -86,7 +80,7 @@ public sealed class JobProcessor(
             }
             catch (Exception ex)
             {
-                // Database blip etc. Back off and keep the loop alive.
+                // e.g. DB blip. Back off and keep going.
                 logger.LogError(ex, "Job polling loop failed; backing off");
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
@@ -133,7 +127,7 @@ public sealed class JobProcessor(
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // Shutting down: the lease runs out and another worker picks the job up.
+            // Shutting down. The lease expires and another worker takes the job.
         }
         catch (Exception ex)
         {
@@ -146,13 +140,13 @@ public sealed class JobProcessor(
         var now = clock.GetUtcNow();
         var message = Truncate($"{error.GetType().Name}: {error.Message}", 1000);
 
-        // Optimistic-concurrency conflicts mean another writer changed the session under us; retry soon without much backoff.
+        // Concurrency conflict: someone else changed the session. Retry soon.
         var concurrency = error is DbUpdateConcurrencyException;
 
         await using var scope = scopes.CreateAsyncScope();
         var (db, handler) = Resolve(scope.ServiceProvider, claimed);
 
-        // Permanent failures (e.g. the vendor rejects our credentials) skip the remaining retries: they can't succeed.
+        // Permanent failures skip the remaining retries.
         if (claimed.Attempts >= claimed.MaxAttempts || error is PermanentProviderException)
         {
             logger.LogError(error, "Job failed permanently or exhausted its attempts ({Attempts}); dead-lettering",

@@ -102,7 +102,7 @@ public class SessionStateMachineTests
 
         var artifact = session.AddArtifact(ArtifactType.IdentityDocument, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now);
         artifact.MarkUploaded(Now);
-        session.SubmitArtifact(artifact, Now); // now DocumentSubmitted: the platform is working
+        session.SubmitArtifact(artifact, Now); // now DocumentSubmitted (processing)
         Assert.False(session.HasLapsed(Now.AddMinutes(6)));
     }
 

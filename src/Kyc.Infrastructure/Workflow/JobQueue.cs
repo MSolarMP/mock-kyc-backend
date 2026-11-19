@@ -10,10 +10,7 @@ public sealed record EmptyPayload;
 
 public static class JobQueue
 {
-    /// <summary>
-    /// Adds a job to the change tracker. It commits with whatever <c>SaveChanges</c> persists the state change
-    /// that caused it (this table is our transactional outbox).
-    /// </summary>
+    // Only tracked here. It commits with the state change that caused it (transactional outbox).
     public static WorkflowJob Enqueue(this KycDbContext db, Guid sessionId, JobType type, object payload,
         string? correlationId, DateTimeOffset now)
     {
@@ -27,15 +24,8 @@ public static class JobQueue
         JsonSerializer.Deserialize<T>(job.Payload, KycDbContext.Json)
         ?? throw new InvalidOperationException($"Job {job.Id} has an empty payload.");
 
-    /// <summary>
-    /// Atomically claims up to <paramref name="batchSize"/> runnable jobs for this worker.
-    /// <list type="bullet">
-    /// <item><c>FOR UPDATE SKIP LOCKED</c>: competing workers never block on, or double-claim, the same row.</item>
-    /// <item>Lease (<c>locked_until</c>): if a worker dies mid-job, the lease runs out and another worker picks it up.
-    /// This gives at-least-once delivery, so handlers are idempotent.</item>
-    /// <item><c>attempts</c> goes up on claim, so a job that keeps crashing its worker still reaches the dead-letter state.</item>
-    /// </list>
-    /// </summary>
+    // SKIP LOCKED so workers never double-claim. If a worker dies, the lease expires and the job is retried,
+    // so handlers must be idempotent. Attempts go up on claim so a job that crashes workers still dead-letters.
     public static Task<List<WorkflowJob>> ClaimAsync(this KycDbContext db, string workerId, int batchSize,
         TimeSpan lease, CancellationToken ct) =>
         db.WorkflowJobs.FromSqlInterpolated($"""

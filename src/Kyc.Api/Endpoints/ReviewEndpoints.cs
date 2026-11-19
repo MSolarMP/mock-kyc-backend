@@ -17,10 +17,8 @@ using Microsoft.Extensions.Options;
 namespace Kyc.Api.Endpoints;
 
 /// <summary>
-/// Manual review API, called by the partner's back-office tool on behalf of one of its staff. The partner already
-/// authenticates its reviewers, so it passes the reviewer's identity in <c>X-Reviewer-Id</c> (an internal staff id,
-/// not an email, to keep personal data out of the audit trail). Every decision and every view of personal data is
-/// audited against that named reviewer. Production option: OIDC tokens carrying the reviewer identity (see docs).
+/// Manual review API, called by the partner's back office for one of its staff. The reviewer's staff id (not email)
+/// comes in <c>X-Reviewer-Id</c>, and every decision and view of personal data is audited against it.
 /// </summary>
 public static partial class ReviewEndpoints
 {
@@ -42,7 +40,7 @@ public static partial class ReviewEndpoints
         group.MapPost("/{sessionId:guid}/decision", Decide).WithSummary("Approve or reject a session under manual review");
     }
 
-    /// <summary>Every review call must name the reviewer; audit rows record "reviewer:&lt;id&gt; via partner:&lt;id&gt;".</summary>
+    /// <summary>Audit rows record "reviewer:&lt;id&gt; via partner:&lt;id&gt;".</summary>
     private static async ValueTask<object?> RequireReviewer(EndpointFilterInvocationContext ctx, EndpointFilterDelegate next)
     {
         var http = ctx.HttpContext;
@@ -135,7 +133,7 @@ public static partial class ReviewEndpoints
         var now = clock.GetUtcNow();
         session.ApplyDecision(Decision.Manual(session.Id, request.Outcome, ReviewerId(http),
             request.ReasonCode.Trim().ToUpperInvariant(), request.Notes, now), now);
-        // xmin concurrency: if two reviewers decide at once, the second gets 409 concurrent_modification.
+        // If two reviewers decide at once, the xmin check gives the second a 409.
         await db.SaveChangesAsync(ct);
         metrics.Decision(request.Outcome.ToString(), nameof(ActorType.Reviewer));
         return Results.Ok(session.ToView(now));

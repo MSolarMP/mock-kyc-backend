@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore.Design;
 
 namespace Kyc.Infrastructure.Persistence;
 
-/// <summary>Used only by `dotnet ef` tooling to build the model for migrations.</summary>
+// Only used by `dotnet ef` for migrations.
 public sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<KycDbContext>
 {
     public KycDbContext CreateDbContext(string[] args)

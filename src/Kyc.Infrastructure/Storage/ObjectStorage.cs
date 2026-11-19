@@ -10,12 +10,9 @@ public sealed class StorageOptions
 {
     public const string Section = "Storage";
     public string Bucket { get; set; } = "kyc-artifacts";
-    /// <summary>Endpoint the services use (inside the docker network, e.g. http://s3:8333).</summary>
+    /// <summary>Endpoint used by our services, e.g. http://s3:8333 inside docker.</summary>
     public string ServiceUrl { get; set; } = "http://localhost:9000";
-    /// <summary>
-    /// Endpoint clients use (e.g. http://localhost:9000 or a CDN/S3 hostname). Pre-signed URLs are signed for this
-    /// host, because the signature covers the Host header.
-    /// </summary>
+    /// <summary>Endpoint clients use. Pre-signed URLs are signed for this host since the signature covers Host.</summary>
     public string PublicServiceUrl { get; set; } = "http://localhost:9000";
     public string AccessKey { get; set; } = "";
     public string SecretKey { get; set; } = "";
@@ -37,10 +34,7 @@ public interface IObjectStorage
     Task EnsureBucketAsync(CancellationToken ct);
 }
 
-/// <summary>
-/// S3-compatible storage (SeaweedFS locally, AWS S3 in production). In production the bucket also has: SSE-KMS by default,
-/// Block Public Access, a lifecycle rule as a backstop to the app's retention job, and access logging.
-/// </summary>
+// S3-compatible storage: SeaweedFS locally, S3 in production.
 public sealed class S3ObjectStorage : IObjectStorage, IDisposable
 {
     private readonly StorageOptions _options;
@@ -65,7 +59,7 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
 
     public async Task<Uri> CreateUploadUrlAsync(string key, string contentType, TimeSpan ttl)
     {
-        // The content type is part of the signature: the client can't upload something else under this URL.
+        // Content type is signed, so the client can't upload a different type.
         var url = await _public.GetPreSignedURLAsync(new GetPreSignedUrlRequest
         {
             BucketName = _options.Bucket,

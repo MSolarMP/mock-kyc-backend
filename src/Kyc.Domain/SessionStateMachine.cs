@@ -1,27 +1,21 @@
 namespace Kyc.Domain;
 
-/// <summary>
-/// The single source of truth for which status changes are legal. Every transition goes through
-/// <see cref="VerificationSession.TransitionTo"/>, which checks this table and writes an audit event.
-/// </summary>
-/// <remarks>
-/// <code>
-///   Created ──upload doc──▶ DocumentSubmitted ──doc ok──▶ AwaitingSelfie ──upload selfie──▶ SelfieSubmitted
-///      ▲                         │  │                          ▲                              │  │
-///      └──── doc unreadable ─────┘  │                          └────── selfie unreadable ─────┘  │
-///                                   │ doc failed / retries used up / provider down               │
-///                                   ▼                                                            ▼
-///                             PendingDecision ◀───────────────── liveness + face match done ─────┘
-///                                   │
-///                 ┌─────────────────┼───────────────────┐
-///                 ▼                 ▼                   ▼
-///             Approved          Rejected          ManualReview ──reviewer──▶ Approved | Rejected
-///
-///   Created / AwaitingSelfie ──timeout──▶ Expired
-/// </code>
-/// Only states that wait on the customer can expire. A session the platform is still processing
-/// never expires, so a slow vendor can't make a customer lose their progress.
-/// </remarks>
+// Which status changes are allowed. VerificationSession.TransitionTo checks this table.
+//
+//   Created ──upload doc──▶ DocumentSubmitted ──doc ok──▶ AwaitingSelfie ──upload selfie──▶ SelfieSubmitted
+//      ▲                         │  │                          ▲                              │  │
+//      └──── doc unreadable ─────┘  │                          └────── selfie unreadable ─────┘  │
+//                                   │ doc failed / retries used up / provider down               │
+//                                   ▼                                                            ▼
+//                             PendingDecision ◀───────────────── liveness + face match done ─────┘
+//                                   │
+//                 ┌─────────────────┼───────────────────┐
+//                 ▼                 ▼                   ▼
+//             Approved          Rejected          ManualReview ──reviewer──▶ Approved | Rejected
+//
+//   Created / AwaitingSelfie ──timeout──▶ Expired
+//
+// Only states waiting on the customer can expire, so a slow vendor never costs a customer their progress.
 public static class SessionStateMachine
 {
     private static readonly Dictionary<SessionStatus, SessionStatus[]> Allowed = new()
@@ -55,7 +49,6 @@ public static class SessionStateMachine
     public static bool IsTerminal(SessionStatus status) =>
         status is SessionStatus.Approved or SessionStatus.Rejected or SessionStatus.Expired;
 
-    /// <summary>States in which the platform is waiting on the customer, so the session may expire.</summary>
     public static bool IsAwaitingCustomer(SessionStatus status) =>
         status is SessionStatus.Created or SessionStatus.AwaitingSelfie;
 

@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Assessment brief: kept locally, not published with the repo
+Senior_Backend_KYC_Assessment_Detailed.pdf

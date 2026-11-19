@@ -469,12 +469,11 @@ Swagger at `/swagger`, `requests.http`, `scripts/demo.ps1`, all updated for the 
 
 ## Step 11: Keep, cut, change: the build plan
 
-**Observation:** the walkthrough mostly confirmed the existing design, so the agreed changes don't shrink the codebase much (~3,800 lines today; roughly the same after the changes). The levers are scope (don't add what can be designed) and transparency about how the code was produced.
+**Observation:** the walkthrough mostly confirmed the existing design, so the agreed changes don't shrink the codebase much (~3,800 lines today; roughly the same after the changes). The lever is scope: don't build what can be designed and documented.
 
 ### Final answers to the open questions
 - **Webhook delivery: design only.** Polling (`GET /v1/verification-sessions/{id}`) is the built mechanism; the webhook contract, signing and retry design go in ARCHITECTURE.md (10.6).
 - **`partners` table: build it.** Hashed API keys in the DB (replaces `ApiClients` config), webhook URL/secret columns (for the designed webhook), per-partner image retention (8.6). Onboarding a bank is a row insert.
-- **README note on how the code was produced: decide later**, after checking the assessment's rules. Leave a placeholder.
 
 ### Cut (remove from code, explain in docs)
 | Item | Reference |
@@ -504,7 +503,7 @@ Webhook delivery; per-vendor concurrency limit; completed-job cleanup; tracing; 
 2. Cuts → build + tests green → commit.
 3. Changes (Vendor A, reviewer flow, partners table) → tests green → commit.
 4. Migration regenerated + trigger re-added; integration tests and demo pass against docker-compose → commit.
-5. Docs: rewrite ARCHITECTURE.md (≤5 pages, from this log); update README (setup, assumptions, trade-offs, limitations, how to replace Vendor A, disclosure placeholder); tidy this file for submission.
+5. Docs: rewrite ARCHITECTURE.md (≤5 pages, from this log); update README (setup, assumptions, trade-offs, limitations, how to replace Vendor A); tidy this file for submission.
 
 ---
 
@@ -521,7 +520,7 @@ Internal working list; remove before submission if preferred.
 - [x] Restructure mock providers into `Providers/VendorA/` (client with vendor-shaped responses, adapter, options); thresholds per vendor in config. Also added `PermanentProviderException` (4xx → dead letter at once) and a `PROVIDER_MISCONFIGURED` sandbox scenario. (4.1, 4.5)
 - [x] Reviewer actions via partner API key with a required `reviewerId`; actor recorded as `reviewer:<id> via partner:<id>`; remove the reviewer API-key role. (6.2)
 - [x] Return the handoff URL only; remove QR PNG generation and its package. (6.4)
-- [x] Regenerate the migration and **re-add the append-only trigger SQL** (see CLAUDE.md gotchas). (5.4)
+- [x] Regenerate the migration and **re-add the append-only trigger SQL** (hand-written SQL at the end of `Up`). (5.4)
 - [x] Update tests, `requests.http` and `scripts/demo.ps1` for the above.
 - [x] Maintenance purge reads retention per partner. (8.6)
 - [x] Remove OpenTelemetry tracing wiring; keep metrics + `/metrics`. (10.9)
@@ -541,7 +540,6 @@ State machine; Postgres job queue with SKIP LOCKED, leases, retries, dead letter
 - [ ] OAuth2/mTLS for partners, OIDC for reviewers, desktop read-only downgrade option. (6)
 - [ ] S3 event notifications, malware scanning, magic-byte check. (7)
 - [ ] Webhook design (designed, not built): thin event, HMAC signature with timestamp, event id dedup, retries via job queue. (1.3, 10.6, 11)
-- [ ] README placeholder: how the implementation was produced (decide after checking assessment rules). (11)
 - [ ] API section: route groups, versioning policy, nextAction, idempotency, error codes, webhook contract + signature verification; observability section: metrics, alerts, tracing as next step. (10)
 - [ ] Scaling section: capacity maths + Little's Law, bottleneck table, graceful degradation + SLO, broker signals, availability (multi-AZ, RPO/RTO), load test plan. (9)
 - [ ] Compliance section: legal roles, data classification, retention assumption (bank holds the FICA record), legal hold, IP exception, data residency / cross-border, erasure/access/consent process, per-customer keys as next step. (8)

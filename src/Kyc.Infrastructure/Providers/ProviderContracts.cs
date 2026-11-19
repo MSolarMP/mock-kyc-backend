@@ -72,3 +72,9 @@ public interface IFaceMatchProvider
 /// Anything else that a provider throws is also retried, but this type makes the intent explicit.
 /// </summary>
 public sealed class TransientProviderException(string message, Exception? inner = null) : Exception(message, inner);
+
+/// <summary>
+/// A failure retrying can't fix (e.g. 400/401 from the vendor: our request or credentials are wrong). The job processor
+/// dead-letters the job immediately and the session goes to manual review; operators are alerted to fix the cause.
+/// </summary>
+public sealed class PermanentProviderException(string message, Exception? inner = null) : Exception(message, inner);

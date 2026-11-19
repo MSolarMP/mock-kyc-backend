@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Kyc.Domain;
 using Kyc.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,7 +23,6 @@ public sealed class VerificationJourneyTests(KycApiFixture fx)
         using var desktop = fx.Customer(desktopToken);
         var handoff = await (await desktop.PostAsync("/v1/client/session/handoff", null)).Content.ReadFromJsonAsync<JsonElement>(Json);
         var qrToken = handoff.GetProperty("handoffUrl").GetString()!.Split("#token=")[1];
-        Assert.False(string.IsNullOrEmpty(handoff.GetProperty("qrCodePngBase64").GetString()));
 
         using var anon = fx.Anonymous();
         var redeem = await anon.PostAsJsonAsync("/v1/handoff/redeem", new { token = qrToken });
@@ -104,9 +104,12 @@ public sealed class VerificationJourneyTests(KycApiFixture fx)
         using var forged = fx.Customer("not-a-real-token-but-long-enough-xx");
         Assert.Equal(HttpStatusCode.Unauthorized, (await forged.GetAsync("/v1/client/session")).StatusCode);
 
-        // A partner key can't call reviewer endpoints
+        // Review endpoints need a named reviewer, and a partner's reviewers can't open another partner's session
         using var partner = fx.Partner();
-        Assert.Equal(HttpStatusCode.Forbidden, (await partner.GetAsync("/v1/reviews")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await partner.GetAsync("/v1/reviews")).StatusCode);
+        using var otherReviewer = fx.Partner(KycApiFixture.OtherPartnerKey);
+        otherReviewer.DefaultRequestHeaders.Add("X-Reviewer-Id", "staff-9");
+        Assert.Equal(HttpStatusCode.NotFound, (await otherReviewer.GetAsync($"/v1/reviews/{sessionId}")).StatusCode);
     }
 
     [Fact]
@@ -169,7 +172,7 @@ public sealed class VerificationJourneyTests(KycApiFixture fx)
         await fx.UploadAsync(token, "Selfie", KycApiFixture.Image("FACE_WEAK"));
         await fx.WaitForAsync(token, s => s.GetProperty("status").GetString() == "ManualReview");
 
-        using var reviewer = fx.Partner(KycApiFixture.ReviewerKey);
+        using var reviewer = fx.Reviewer();
         var queue = await reviewer.GetFromJsonAsync<JsonElement[]>("/v1/reviews?limit=200", Json);
         Assert.Contains(queue!, q => q.GetProperty("sessionId").GetGuid() == sessionId);
 
@@ -191,7 +194,12 @@ public sealed class VerificationJourneyTests(KycApiFixture fx)
         Assert.Equal("Rejected", details.GetProperty("status").GetString());
         var decisions = details.GetProperty("decisions").EnumerateArray().ToList();
         Assert.Equal(["ManualReview", "Rejected"], decisions.Select(d => d.GetProperty("outcome").GetString()));
-        Assert.Equal("reviewer-1", decisions[1].GetProperty("reviewerId").GetString());
+        Assert.Equal(KycApiFixture.ReviewerId, decisions[1].GetProperty("reviewerId").GetString());
+
+        // The audit trail names the person who decided, and the partner they acted for
+        var events = await partner.GetFromJsonAsync<JsonElement[]>($"/v1/verification-sessions/{sessionId}/events", Json);
+        Assert.Contains(events!, e => e.GetProperty("eventType").GetString() == "decision.made"
+            && e.GetProperty("actorId").GetString() == $"reviewer:{KycApiFixture.ReviewerId} via partner:partner-a");
     }
 
     [Fact]
@@ -219,6 +227,20 @@ public sealed class VerificationJourneyTests(KycApiFixture fx)
         var check = details.GetProperty("checks")[0];
         Assert.Equal("Passed", check.GetProperty("outcome").GetString());
         Assert.Equal(2, check.GetProperty("attempt").GetInt32());
+    }
+
+    [Fact]
+    public async Task Permanent_provider_failure_is_not_retried_and_goes_to_manual_review()
+    {
+        var (sessionId, token) = await fx.CreateSessionAsync();
+        await fx.UploadAsync(token, "IdentityDocument", KycApiFixture.Image("PROVIDER_MISCONFIGURED"));
+        await fx.WaitForAsync(token, s => s.GetProperty("status").GetString() == "ManualReview", timeoutSeconds: 10);
+
+        using var scope = fx.Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<KycDbContext>();
+        var job = await db.WorkflowJobs.SingleAsync(j => j.SessionId == sessionId);
+        Assert.Equal(JobStatus.DeadLettered, job.Status);
+        Assert.Equal(1, job.Attempts);
     }
 
     [Fact]

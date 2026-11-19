@@ -513,18 +513,18 @@ Webhook delivery; per-vendor concurrency limit; completed-job cleanup; tracing; 
 Internal working list; remove before submission if preferred.
 
 ### Before any trimming
-- [ ] Commit the current full implementation to a branch (e.g. `full-implementation`); nothing is committed yet.
+- [x] Commit the current full implementation to a branch (e.g. `full-implementation`); nothing is committed yet.
 
 ### Code changes agreed so far
-- [ ] Add `partners` table (API key hashes, webhook URL + secret columns, image retention days); replaces `ApiClients` config. (5.3, 6.1, 8.6, 11)
-- [ ] Remove `outbox_messages`, `OutboxPublisher`, and the outbox branch in `KycDbContext.SaveChangesAsync`. (5.5)
-- [ ] Restructure mock providers into `Providers/VendorA/` (client with vendor-shaped responses, adapter, options); thresholds per vendor in config. (4.5)
-- [ ] Reviewer actions via partner API key with a required `reviewerId`; actor recorded as `reviewer:<id> via partner:<id>`; remove the reviewer API-key role. (6.2)
-- [ ] Return the handoff URL only; remove QR PNG generation and its package. (6.4)
-- [ ] Regenerate the migration and **re-add the append-only trigger SQL** (see CLAUDE.md gotchas). (5.4)
-- [ ] Update tests, `requests.http` and `scripts/demo.ps1` for the above.
-- [ ] Maintenance purge reads retention per partner. (8.6)
-- [ ] Remove OpenTelemetry tracing wiring; keep metrics + `/metrics`. (10.9)
+- [x] Add `partners` table (API key hashes, webhook URL + secret columns, image retention days); replaces `ApiClients` config. (5.3, 6.1, 8.6, 11)
+- [x] Remove `outbox_messages`, `OutboxPublisher`, and the outbox branch in `KycDbContext.SaveChangesAsync`. (5.5)
+- [x] Restructure mock providers into `Providers/VendorA/` (client with vendor-shaped responses, adapter, options); thresholds per vendor in config. Also added `PermanentProviderException` (4xx → dead letter at once) and a `PROVIDER_MISCONFIGURED` sandbox scenario. (4.1, 4.5)
+- [x] Reviewer actions via partner API key with a required `reviewerId`; actor recorded as `reviewer:<id> via partner:<id>`; remove the reviewer API-key role. (6.2)
+- [x] Return the handoff URL only; remove QR PNG generation and its package. (6.4)
+- [x] Regenerate the migration and **re-add the append-only trigger SQL** (see CLAUDE.md gotchas). (5.4)
+- [x] Update tests, `requests.http` and `scripts/demo.ps1` for the above.
+- [x] Maintenance purge reads retention per partner. (8.6)
+- [x] Remove OpenTelemetry tracing wiring; keep metrics + `/metrics`. (10.9)
 - [x] Partner audit endpoint: already exists as `GET /v1/verification-sessions/{id}/events`; keep. (10.1)
 
 ### Kept as is (decided)

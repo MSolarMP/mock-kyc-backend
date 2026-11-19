@@ -112,8 +112,8 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
 
                     b.Property<string>("ActorId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
                         .HasColumnName("actor_id");
 
                     b.Property<string>("ActorType")
@@ -281,54 +281,85 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                     b.ToTable("handoff_tokens", (string)null);
                 });
 
-            modelBuilder.Entity("Kyc.Domain.OutboxMessage", b =>
+            modelBuilder.Entity("Kyc.Domain.Partner", b =>
                 {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
                         .HasColumnName("id");
 
-                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
-                    b.Property<int>("Attempts")
+                    b.Property<int>("ImageRetentionDays")
                         .HasColumnType("integer")
-                        .HasColumnName("attempts");
+                        .HasColumnName("image_retention_days");
 
-                    b.Property<string>("EventType")
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("WebhookUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("webhook_url");
+
+                    b.HasKey("Id")
+                        .HasName("pk_partners");
+
+                    b.ToTable("partners", (string)null);
+                });
+
+            modelBuilder.Entity("Kyc.Domain.PartnerApiKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("KeyHash")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
-                        .HasColumnName("event_type");
+                        .HasColumnName("key_hash");
 
-                    b.Property<string>("LastError")
-                        .HasColumnType("text")
-                        .HasColumnName("last_error");
-
-                    b.Property<DateTimeOffset>("OccurredAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("occurred_at");
-
-                    b.Property<string>("Payload")
+                    b.Property<string>("KeyPrefix")
                         .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("payload");
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("key_prefix");
 
-                    b.Property<DateTimeOffset?>("PublishedAt")
+                    b.Property<string>("PartnerId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("partner_id");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("published_at");
-
-                    b.Property<Guid>("SessionId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("session_id");
+                        .HasColumnName("revoked_at");
 
                     b.HasKey("Id")
-                        .HasName("pk_outbox_messages");
+                        .HasName("pk_partner_api_keys");
 
-                    b.HasIndex("Id")
-                        .HasDatabaseName("ix_outbox_messages_unpublished")
-                        .HasFilter("published_at IS NULL");
+                    b.HasIndex("KeyHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_partner_api_keys_key_hash");
 
-                    b.ToTable("outbox_messages", (string)null);
+                    b.HasIndex("PartnerId")
+                        .HasDatabaseName("ix_partner_api_keys_partner_id");
+
+                    b.ToTable("partner_api_keys", (string)null);
                 });
 
             modelBuilder.Entity("Kyc.Domain.ProviderCheck", b =>
@@ -487,12 +518,6 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(16)")
                         .HasColumnName("channel");
 
-                    b.Property<string>("ClientId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("client_id");
-
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("completed_at");
@@ -545,6 +570,12 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("idempotency_request_hash");
 
+                    b.Property<string>("PartnerId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("partner_id");
+
                     b.Property<int>("SelfieAttempts")
                         .HasColumnType("integer")
                         .HasColumnName("selfie_attempts");
@@ -572,15 +603,15 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_verification_sessions_document_number_hash")
                         .HasFilter("document_number_hash IS NOT NULL");
 
-                    b.HasIndex("ClientId", "ApplicantReference")
-                        .HasDatabaseName("ix_verification_sessions_client_id_applicant_reference");
-
-                    b.HasIndex("ClientId", "IdempotencyKey")
-                        .IsUnique()
-                        .HasDatabaseName("ix_verification_sessions_client_id_idempotency_key");
-
                     b.HasIndex("CreatedIp", "CreatedAt")
                         .HasDatabaseName("ix_verification_sessions_created_ip_created_at");
+
+                    b.HasIndex("PartnerId", "ApplicantReference")
+                        .HasDatabaseName("ix_verification_sessions_partner_id_applicant_reference");
+
+                    b.HasIndex("PartnerId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_verification_sessions_partner_id_idempotency_key");
 
                     b.HasIndex("Status", "UpdatedAt")
                         .HasDatabaseName("ix_verification_sessions_status_updated_at");
@@ -686,6 +717,16 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_decisions_verification_sessions_session_id");
                 });
 
+            modelBuilder.Entity("Kyc.Domain.PartnerApiKey", b =>
+                {
+                    b.HasOne("Kyc.Domain.Partner", null)
+                        .WithMany("ApiKeys")
+                        .HasForeignKey("PartnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_partner_api_keys_partners_partner_id");
+                });
+
             modelBuilder.Entity("Kyc.Domain.ProviderCheck", b =>
                 {
                     b.HasOne("Kyc.Domain.VerificationSession", null)
@@ -694,6 +735,21 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_provider_checks_verification_sessions_session_id");
+                });
+
+            modelBuilder.Entity("Kyc.Domain.VerificationSession", b =>
+                {
+                    b.HasOne("Kyc.Domain.Partner", null)
+                        .WithMany()
+                        .HasForeignKey("PartnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_verification_sessions_partners_partner_id");
+                });
+
+            modelBuilder.Entity("Kyc.Domain.Partner", b =>
+                {
+                    b.Navigation("ApiKeys");
                 });
 
             modelBuilder.Entity("Kyc.Domain.VerificationSession", b =>

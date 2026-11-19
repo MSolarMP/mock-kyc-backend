@@ -8,13 +8,14 @@
   .\scripts\demo.ps1 -Scenario face-weak    # ends in ManualReview, then a reviewer approves it
   .\scripts\demo.ps1 -Scenario all          # run every scenario
 
-  Scenarios: happy, doc-tampered, doc-blurry, face-weak, liveness-spoof, flaky-provider, provider-down, repeat-after-reject
+  Scenarios: happy, doc-tampered, doc-blurry, face-weak, liveness-spoof, flaky-provider, provider-down,
+             provider-misconfigured, repeat-after-reject
 #>
 param(
     [string]$BaseUrl = "http://localhost:8080",
     [string]$Scenario = "happy",
     [string]$PartnerKey = "dev-partner-key",
-    [string]$ReviewerKey = "dev-reviewer-key"
+    [string]$ReviewerId = "staff-1042"
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,6 +28,7 @@ $scenarios = [ordered]@{
     "liveness-spoof"      = @(@(),                          @("LIVENESS_SPOOF"),     "Rejected",     $false)
     "flaky-provider"      = @(@("PROVIDER_FLAKY"),          @(),                     "Approved",     $false)
     "provider-down"       = @(@("PROVIDER_DOWN"),           @(),                     "ManualReview", $false)
+    "provider-misconfigured" = @(@("PROVIDER_MISCONFIGURED"), @(),                   "ManualReview", $false)
     "repeat-after-reject" = @(@("DOC_NUMBER=RPT900101"),    @(),                     "ManualReview", $false)
 }
 
@@ -114,7 +116,7 @@ function Invoke-Scenario([string]$Name) {
 
     Write-Step "2. Desktop asks for a QR code to continue on the phone"
     $handoff = Invoke-Api POST "/v1/client/session/handoff" $null @{ Authorization = "Bearer $desktop" }
-    Write-Ok "handoff URL: $($handoff.handoffUrl.Substring(0, 60))... (QR PNG: $($handoff.qrCodePngBase64.Length) base64 chars)"
+    Write-Ok "handoff URL: $($handoff.handoffUrl.Substring(0, 60))... (front end renders this as a QR code)"
     $handoffToken = ($handoff.handoffUrl -split "#token=")[1]
 
     Write-Step "3. Phone scans the QR and redeems the single-use token"
@@ -154,8 +156,8 @@ function Invoke-Scenario([string]$Name) {
     foreach ($d in $details.decisions) { Write-Ok ("decision {0} by {1} reasons={2}" -f $d.outcome, $d.decidedBy, ($d.reasonCodes -join ",")) }
 
     if ($details.status -eq "ManualReview") {
-        Write-Step "8. Reviewer opens the case and approves it"
-        $reviewer = @{ "X-Api-Key" = $ReviewerKey }
+        Write-Step "8. Partner back office: reviewer $ReviewerId opens the case and approves it"
+        $reviewer = @{ "X-Api-Key" = $PartnerKey; "X-Reviewer-Id" = $ReviewerId }
         $case = Invoke-Api GET "/v1/reviews/$($created.sessionId)" $null $reviewer
         Write-Ok "case shows $($case.images.Count) short-lived image links, $($case.relatedSessions.Count) related sessions, doc# $($case.identity.documentNumberMasked)"
         $null = Invoke-Api POST "/v1/reviews/$($created.sessionId)/decision" @{ outcome = "Approved"; reasonCode = "VERIFIED_MANUALLY"; notes = "Demo: checked against document" } $reviewer

@@ -4,6 +4,7 @@ using Kyc.Domain.Workflow;
 using Kyc.Infrastructure.Common;
 using Kyc.Infrastructure.Observability;
 using Kyc.Infrastructure.Persistence;
+using Kyc.Infrastructure.Providers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -151,9 +152,11 @@ public sealed class JobProcessor(
         await using var scope = scopes.CreateAsyncScope();
         var (db, handler) = Resolve(scope.ServiceProvider, claimed);
 
-        if (claimed.Attempts >= claimed.MaxAttempts)
+        // Permanent failures (e.g. the vendor rejects our credentials) skip the remaining retries: they can't succeed.
+        if (claimed.Attempts >= claimed.MaxAttempts || error is PermanentProviderException)
         {
-            logger.LogError(error, "Job exhausted {Attempts} attempts; dead-lettering", claimed.Attempts);
+            logger.LogError(error, "Job failed permanently or exhausted its attempts ({Attempts}); dead-lettering",
+                claimed.Attempts);
             try
             {
                 await handler.OnExhaustedAsync(claimed, db, error, ct);

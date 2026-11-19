@@ -77,7 +77,7 @@ public enum DecisionOutcome
 public enum ActorType
 {
     Customer,
-    ApiClient,
+    Partner,
     Reviewer,
     System,
 }

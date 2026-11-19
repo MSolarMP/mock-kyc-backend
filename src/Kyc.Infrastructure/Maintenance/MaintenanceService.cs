@@ -13,15 +13,14 @@ namespace Kyc.Infrastructure.Maintenance;
 public sealed class RetentionOptions
 {
     public const string Section = "Retention";
-    /// <summary>
-    /// Days after a final decision before document and selfie images are deleted (data minimisation, POPIA/GDPR).
-    /// Decision records, check results and the audit trail are kept longer (FICA record-keeping is 5 years).
-    /// </summary>
-    public int ImageRetentionDays { get; set; } = 30;
     public int SweepIntervalSeconds { get; set; } = 60;
 }
 
-/// <summary>Periodic housekeeping: expire abandoned sessions and purge images past their retention period.</summary>
+/// <summary>
+/// Periodic housekeeping: expire abandoned sessions, and purge images past their partner's retention period
+/// (<see cref="Partner.ImageRetentionDays"/>; data minimisation under POPIA/GDPR). Decisions, check results and the
+/// audit trail are kept: they hold no images and no readable identity.
+/// </summary>
 public sealed class MaintenanceService(
     IServiceScopeFactory scopes,
     IOptions<RetentionOptions> options,
@@ -82,14 +81,24 @@ public sealed class MaintenanceService(
         ((RequestContext)scope.ServiceProvider.GetRequiredService<IRequestContext>())
             .SetActor(ActorType.System, "retention");
 
-        var cutoff = clock.GetUtcNow().AddDays(-options.Value.ImageRetentionDays);
-        var sessions = await db.Sessions
-            .Include(s => s.Artifacts)
-            .Where(s => s.CompletedAt != null && s.CompletedAt < cutoff
-                        && s.Artifacts.Any(a => a.Status != ArtifactStatus.Purged))
-            .OrderBy(s => s.CompletedAt)
-            .Take(50)
+        // Retention is per partner. The partner list is small, so one bounded query per partner keeps the SQL simple.
+        var now = clock.GetUtcNow();
+        var partners = await db.Partners.AsNoTracking()
+            .Select(p => new { p.Id, p.ImageRetentionDays })
             .ToListAsync(ct);
+
+        var sessions = new List<VerificationSession>();
+        foreach (var partner in partners)
+        {
+            var cutoff = now.AddDays(-partner.ImageRetentionDays);
+            sessions.AddRange(await db.Sessions
+                .Include(s => s.Artifacts)
+                .Where(s => s.PartnerId == partner.Id && s.CompletedAt != null && s.CompletedAt < cutoff
+                            && s.Artifacts.Any(a => a.Status != ArtifactStatus.Purged))
+                .OrderBy(s => s.CompletedAt)
+                .Take(50)
+                .ToListAsync(ct));
+        }
 
         var purged = 0;
         foreach (var session in sessions)

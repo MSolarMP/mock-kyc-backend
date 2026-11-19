@@ -26,10 +26,10 @@ public static class PartnerEndpoints
             .WithSummary("Start a verification session for an applicant")
             .WithDescription("Requires an Idempotency-Key header. Retrying with the same key and body returns the same session (with a fresh client token).");
 
-        group.MapGet("/{sessionId:guid}", GetSession).RequireAuthorization(Policies.PartnerOrReviewer)
+        group.MapGet("/{sessionId:guid}", GetSession).RequireAuthorization(Policies.Partner)
             .WithSummary("Get the full status, check results and decisions of a session");
 
-        group.MapGet("/{sessionId:guid}/events", GetAuditTrail).RequireAuthorization(Policies.PartnerOrReviewer)
+        group.MapGet("/{sessionId:guid}/events", GetAuditTrail).RequireAuthorization(Policies.Partner)
             .WithSummary("Get the append-only audit trail of a session");
     }
 
@@ -49,17 +49,17 @@ public static class PartnerEndpoints
         if (string.IsNullOrWhiteSpace(request.ApplicantReference) || request.ApplicantReference.Length > 128)
             return Problems.Validation((nameof(request.ApplicantReference), "Required, at most 128 characters."));
 
-        var clientId = user.ClientId();
+        var partnerId = user.PartnerId();
         var requestHash = Convert.ToHexStringLower(SHA256.HashData(
             Encoding.UTF8.GetBytes(JsonSerializer.Serialize(request))));
         var now = clock.GetUtcNow();
 
-        var existing = await FindByIdempotencyKey(db, clientId, idempotencyKey, ct);
+        var existing = await FindByIdempotencyKey(db, partnerId, idempotencyKey, ct);
         if (existing is not null)
             return await Replay(existing, requestHash, request, db, now, ct);
 
         var customer = request.Customer;
-        var session = VerificationSession.Create(clientId, request.ApplicantReference.Trim(), request.Channel,
+        var session = VerificationSession.Create(partnerId, request.ApplicantReference.Trim(), request.Channel,
             idempotencyKey, requestHash, TimeSpan.FromMinutes(options.Value.SessionLifetimeMinutes), now,
             customer?.IpAddress, customer?.UserAgent, customer?.DeviceFingerprint);
         db.Sessions.Add(session);
@@ -74,7 +74,7 @@ public static class PartnerEndpoints
         {
             // Two concurrent retries with the same key: the loser replays the winner's session.
             db.ChangeTracker.Clear();
-            existing = await FindByIdempotencyKey(db, clientId, idempotencyKey, ct);
+            existing = await FindByIdempotencyKey(db, partnerId, idempotencyKey, ct);
             return await Replay(existing!, requestHash, request, db, now, ct);
         }
 
@@ -83,9 +83,9 @@ public static class PartnerEndpoints
             new CreateSessionResponse(session.Id, session.Status, session.ExpiresAt, token, tokenEntity.ExpiresAt));
     }
 
-    private static Task<VerificationSession?> FindByIdempotencyKey(KycDbContext db, string clientId, string key,
+    private static Task<VerificationSession?> FindByIdempotencyKey(KycDbContext db, string partnerId, string key,
         CancellationToken ct) =>
-        db.Sessions.SingleOrDefaultAsync(s => s.ClientId == clientId && s.IdempotencyKey == key, ct);
+        db.Sessions.SingleOrDefaultAsync(s => s.PartnerId == partnerId && s.IdempotencyKey == key, ct);
 
     private static async Task<IResult> Replay(VerificationSession existing, string requestHash,
         CreateSessionRequest request, KycDbContext db, DateTimeOffset now, CancellationToken ct)
@@ -123,7 +123,7 @@ public static class PartnerEndpoints
             e.CorrelationId, e.OccurredAt, JsonDocument.Parse(e.Data).RootElement)));
     }
 
-    /// <summary>Partners see only their own sessions. Reviewers see all. Someone else's session returns 404, not 403, so ids can't be enumerated.</summary>
+    /// <summary>Partners (and their reviewers) see only their own sessions. Someone else's session returns 404, not 403, so ids can't be probed across tenants.</summary>
     internal static async Task<VerificationSession> LoadVisibleSession(KycDbContext db, ClaimsPrincipal user,
         Guid sessionId, CancellationToken ct, bool includeChildren = true)
     {
@@ -131,7 +131,7 @@ public static class PartnerEndpoints
         if (includeChildren)
             query = query.Include(s => s.Artifacts).Include(s => s.Checks).Include(s => s.Decisions).AsSplitQuery();
         var session = await query.SingleOrDefaultAsync(s => s.Id == sessionId, ct);
-        if (session is null || (!user.IsReviewer() && session.ClientId != user.ClientId()))
+        if (session is null || session.PartnerId != user.PartnerId())
             throw new NotFoundException("Verification session");
         return session;
     }

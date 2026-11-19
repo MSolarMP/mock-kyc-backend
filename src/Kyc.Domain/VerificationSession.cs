@@ -3,7 +3,7 @@ namespace Kyc.Domain;
 /// <summary>
 /// Aggregate root for one verification attempt. State changes go through methods on this class,
 /// which enforce <see cref="SessionStateMachine"/> and record a <see cref="SessionEvent"/>.
-/// The persistence layer turns those events into append-only audit rows (and outbox messages) in the
+/// The persistence layer turns those events into append-only audit rows in the
 /// same transaction as the state change, so the audit trail can't drift from the data.
 /// </summary>
 public class VerificationSession
@@ -20,8 +20,8 @@ public class VerificationSession
     /// <summary>The calling system's reference for the applicant (e.g. its customer/application id). Not PII.</summary>
     public string ApplicantReference { get; private set; } = default!;
 
-    /// <summary>The API client (partner system) that created the session. Callers can only see their own sessions.</summary>
-    public string ClientId { get; private set; } = default!;
+    /// <summary>The partner (tenant) that created the session. Partners can only see their own sessions.</summary>
+    public string PartnerId { get; private set; } = default!;
 
     public Channel Channel { get; private set; }
     public SessionStatus Status { get; private set; }
@@ -34,7 +34,7 @@ public class VerificationSession
     public DateTimeOffset ExpiresAt { get; private set; }
     public DateTimeOffset? CompletedAt { get; private set; }
 
-    /// <summary>Idempotency key supplied on creation, unique per client. A retried create returns the same session.</summary>
+    /// <summary>Idempotency key supplied on creation, unique per partner. A retried create returns the same session.</summary>
     public string IdempotencyKey { get; private set; } = default!;
     public string IdempotencyRequestHash { get; private set; } = default!;
 
@@ -62,7 +62,7 @@ public class VerificationSession
     public IReadOnlyList<SessionEvent> PendingEvents => _pendingEvents;
 
     public static VerificationSession Create(
-        string clientId,
+        string partnerId,
         string applicantReference,
         Channel channel,
         string idempotencyKey,
@@ -76,7 +76,7 @@ public class VerificationSession
         var session = new VerificationSession
         {
             Id = Guid.CreateVersion7(now),
-            ClientId = clientId,
+            PartnerId = partnerId,
             ApplicantReference = applicantReference,
             Channel = channel,
             Status = SessionStatus.Created,
@@ -120,8 +120,7 @@ public class VerificationSession
         if (SessionStateMachine.IsTerminal(target))
             CompletedAt = now;
 
-        Record(AuditEventTypes.StatusChanged, new { from = from.ToString(), to = target.ToString(), reason },
-            publish: true);
+        Record(AuditEventTypes.StatusChanged, new { from = from.ToString(), to = target.ToString(), reason });
     }
 
     /// <summary>Called when the customer confirms an upload. Advances the workflow and counts the attempt.</summary>
@@ -200,15 +199,15 @@ public class VerificationSession
             reasons = decision.ReasonCodes,
             rulesVersion = decision.RulesVersion,
             riskScore = decision.RiskScore,
-        }, publish: true);
+        });
         TransitionTo(target, now, $"decision:{decision.Outcome}");
     }
 
-    public void Record(string eventType, object? data = null, bool publish = false) =>
-        _pendingEvents.Add(new SessionEvent(Id, eventType, data, publish));
+    public void Record(string eventType, object? data = null) =>
+        _pendingEvents.Add(new SessionEvent(Id, eventType, data));
 
     public void ClearPendingEvents() => _pendingEvents.Clear();
 }
 
-/// <summary>Something that happened to a session, waiting to be persisted as an audit event (and optionally published).</summary>
-public sealed record SessionEvent(Guid SessionId, string EventType, object? Data, bool Publish);
+/// <summary>Something that happened to a session, waiting to be persisted as an audit event.</summary>
+public sealed record SessionEvent(Guid SessionId, string EventType, object? Data);

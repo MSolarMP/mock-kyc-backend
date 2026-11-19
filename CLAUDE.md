@@ -98,4 +98,10 @@ Start the infra containers first (`docker compose up -d postgres s3`).
 - [x] scripts/demo.ps1: all 8 scenarios pass against the compose stack
 - [x] requests.http, README.md, docs/ARCHITECTURE.md
 - [ ] Optional polish: tiny HTML page to show the QR visually; partner webhook publisher; DLQ replay endpoint
-- [ ] Not yet committed to git (repo initialised, nothing committed). Commit when the user asks.
+- [x] Initial commit on `main`; full original version kept on branch `full-implementation`
+- [x] Build phase of the walkthrough (2026-11-19): outbox removed, QR PNG removed, tracing wiring removed, `partners` +
+      `partner_api_keys` tables (replace `ApiClients` config; dev seed via `Partners:Seed`), reviewer = partner key +
+      `X-Reviewer-Id`, mocks → `Providers/VendorA/` (sandbox client + adapter + per-vendor thresholds), permanent
+      vendor errors dead-letter immediately, per-partner image retention, migration regenerated (+ trigger).
+      Unit 59 ✓, integration 13 ✓, demo 9/9 ✓.
+- [ ] Next: cleanup + docs (rewrite ARCHITECTURE.md from docs/DECISIONS.md, README updates incl. "How to replace Vendor A")

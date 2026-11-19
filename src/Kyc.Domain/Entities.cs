@@ -235,19 +235,6 @@ public class AuditEvent
     public DateTimeOffset OccurredAt { get; set; }
 }
 
-/// <summary>Transactional outbox entry, published to downstream systems (e.g. account activation) after commit.</summary>
-public class OutboxMessage
-{
-    public long Id { get; set; }
-    public Guid SessionId { get; set; }
-    public string EventType { get; set; } = default!;
-    public string Payload { get; set; } = "{}";
-    public DateTimeOffset OccurredAt { get; set; }
-    public DateTimeOffset? PublishedAt { get; set; }
-    public int Attempts { get; set; }
-    public string? LastError { get; set; }
-}
-
 /// <summary>
 /// A durable unit of workflow work. Written in the same transaction as the state change that causes it,
 /// so a crash can't leave a session stuck with no work queued.

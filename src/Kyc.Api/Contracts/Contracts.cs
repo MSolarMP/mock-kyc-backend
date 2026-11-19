@@ -61,11 +61,8 @@ public sealed record ClientSessionView(
     int SelfieAttemptsRemaining,
     DateTimeOffset ExpiresAt);
 
-public sealed record CreateHandoffResponse(
-    string HandoffUrl,
-    DateTimeOffset ExpiresAt,
-    // PNG of the QR code as base64, for convenience. Front ends can also render it from <see cref="HandoffUrl"/>.
-    string QrCodePngBase64);
+/// <summary>The front end renders <see cref="HandoffUrl"/> as a QR code for the second device to scan.</summary>
+public sealed record CreateHandoffResponse(string HandoffUrl, DateTimeOffset ExpiresAt);
 
 public sealed record RedeemHandoffRequest(string Token, string? DeviceFingerprint);
 
@@ -82,7 +79,7 @@ public sealed record CreateArtifactResponse(
 
 // ---------- Reviewer ----------
 
-public sealed record ReviewQueueItem(Guid SessionId, string ApplicantReference, string ClientId,
+public sealed record ReviewQueueItem(Guid SessionId, string ApplicantReference,
     IReadOnlyList<string> ReasonCodes, int? RiskScore, DateTimeOffset WaitingSince);
 
 public sealed record ReviewCaseView(SessionView Session, ExtractedIdentityView? Identity,
@@ -93,8 +90,11 @@ public sealed record ExtractedIdentityView(string FullName, DateOnly DateOfBirth
 
 public sealed record ArtifactLink(Guid ArtifactId, ArtifactType Type, string Url, DateTimeOffset ExpiresAt);
 
-/// <summary>Other sessions that share the same document (by HMAC). Investigators use this to spot repeat attempts and synthetic identities.</summary>
-public sealed record RelatedSessionView(Guid SessionId, string ClientId, SessionStatus Status, DateTimeOffset CreatedAt);
+/// <summary>
+/// Other sessions of the same partner that share the same document (by HMAC). Investigators use this to spot repeat
+/// attempts after a rejection. Matching across partners is a data-sharing (POPIA) question, so it is left out.
+/// </summary>
+public sealed record RelatedSessionView(Guid SessionId, SessionStatus Status, DateTimeOffset CreatedAt);
 
 public sealed record ReviewDecisionRequest(DecisionOutcome Outcome, string ReasonCode, string? Notes);
 

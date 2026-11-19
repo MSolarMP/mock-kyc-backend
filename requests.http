@@ -3,7 +3,7 @@
 
 @baseUrl = http://localhost:8080
 @partnerKey = dev-partner-key
-@reviewerKey = dev-reviewer-key
+@reviewerId = staff-1042
 
 ### 1. Partner creates a session (try sending it twice: same Idempotency-Key returns the same session)
 # @name create
@@ -57,17 +57,20 @@ X-Api-Key: {{partnerKey}}
 GET {{baseUrl}}/v1/verification-sessions/{{sessionId}}/events
 X-Api-Key: {{partnerKey}}
 
-### 8. Reviewer: manual review queue
+### 8. Reviewer (via the partner's back office): manual review queue
 GET {{baseUrl}}/v1/reviews
-X-Api-Key: {{reviewerKey}}
+X-Api-Key: {{partnerKey}}
+X-Reviewer-Id: {{reviewerId}}
 
 ### 9. Reviewer: open a case (identity, short-lived image links, related sessions; the access is audited)
 GET {{baseUrl}}/v1/reviews/{{sessionId}}
-X-Api-Key: {{reviewerKey}}
+X-Api-Key: {{partnerKey}}
+X-Reviewer-Id: {{reviewerId}}
 
 ### 10. Reviewer: decide
 POST {{baseUrl}}/v1/reviews/{{sessionId}}/decision
-X-Api-Key: {{reviewerKey}}
+X-Api-Key: {{partnerKey}}
+X-Reviewer-Id: {{reviewerId}}
 Content-Type: application/json
 
 { "outcome": "Approved", "reasonCode": "VERIFIED_MANUALLY", "notes": "Document and selfie checked" }

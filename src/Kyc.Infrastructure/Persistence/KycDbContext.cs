@@ -10,6 +10,8 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
 {
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    public DbSet<Partner> Partners => Set<Partner>();
+    public DbSet<PartnerApiKey> PartnerApiKeys => Set<PartnerApiKey>();
     public DbSet<VerificationSession> Sessions => Set<VerificationSession>();
     public DbSet<Artifact> Artifacts => Set<Artifact>();
     public DbSet<ProviderCheck> ProviderChecks => Set<ProviderCheck>();
@@ -17,7 +19,6 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
     public DbSet<HandoffToken> HandoffTokens => Set<HandoffToken>();
     public DbSet<SessionAccessToken> AccessTokens => Set<SessionAccessToken>();
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
-    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<WorkflowJob> WorkflowJobs => Set<WorkflowJob>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder b)
@@ -37,12 +38,33 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
 
     protected override void OnModelCreating(ModelBuilder m)
     {
+        m.Entity<Partner>(e =>
+        {
+            e.ToTable("partners");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.Name).HasMaxLength(200);
+            e.Property(x => x.WebhookUrl).HasMaxLength(500);
+            e.HasMany(x => x.ApiKeys).WithOne().HasForeignKey(x => x.PartnerId);
+        });
+
+        m.Entity<PartnerApiKey>(e =>
+        {
+            e.ToTable("partner_api_keys");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.PartnerId).HasMaxLength(64);
+            e.Property(x => x.KeyHash).HasMaxLength(64);
+            e.Property(x => x.KeyPrefix).HasMaxLength(16);
+            // Auth looks keys up by hash on every partner request.
+            e.HasIndex(x => x.KeyHash).IsUnique();
+        });
+
         m.Entity<VerificationSession>(e =>
         {
             e.ToTable("verification_sessions");
             e.HasKey(x => x.Id);
             e.Property(x => x.ApplicantReference).HasMaxLength(128);
-            e.Property(x => x.ClientId).HasMaxLength(64);
+            e.Property(x => x.PartnerId).HasMaxLength(64);
             e.Property(x => x.IdempotencyKey).HasMaxLength(128);
             e.Property(x => x.IdempotencyRequestHash).HasMaxLength(64);
             e.Property(x => x.CreatedIp).HasMaxLength(64);
@@ -54,8 +76,9 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.Ignore(x => x.IsTerminal);
             e.Ignore(x => x.ExpectedArtifact);
 
-            e.HasIndex(x => new { x.ClientId, x.IdempotencyKey }).IsUnique();
-            e.HasIndex(x => new { x.ClientId, x.ApplicantReference });
+            e.HasIndex(x => new { x.PartnerId, x.IdempotencyKey }).IsUnique();
+            e.HasIndex(x => new { x.PartnerId, x.ApplicantReference });
+            e.HasOne<Partner>().WithMany().HasForeignKey(x => x.PartnerId).OnDelete(DeleteBehavior.Restrict);
             // Review queue, expiry sweeps, dashboards
             e.HasIndex(x => new { x.Status, x.UpdatedAt });
             // Fraud: same document seen across sessions
@@ -130,7 +153,7 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.EventType).HasMaxLength(64);
-            e.Property(x => x.ActorId).HasMaxLength(128);
+            e.Property(x => x.ActorId).HasMaxLength(200);
             e.Property(x => x.CorrelationId).HasMaxLength(64);
             e.Property(x => x.IpAddress).HasMaxLength(64);
             e.Property(x => x.Data).HasColumnType("jsonb");
@@ -148,16 +171,6 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
                 keyProperty.ValueGenerated = Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.Never;
         }
 
-        m.Entity<OutboxMessage>(e =>
-        {
-            e.ToTable("outbox_messages");
-            e.HasKey(x => x.Id);
-            e.Property(x => x.Id).UseIdentityAlwaysColumn();
-            e.Property(x => x.EventType).HasMaxLength(64);
-            e.Property(x => x.Payload).HasColumnType("jsonb");
-            e.HasIndex(x => x.Id).HasFilter("published_at IS NULL").HasDatabaseName("ix_outbox_messages_unpublished");
-        });
-
         m.Entity<WorkflowJob>(e =>
         {
             e.ToTable("workflow_jobs");
@@ -173,7 +186,7 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
     }
 
     /// <summary>
-    /// Turns pending domain events into audit rows (and outbox rows for events flagged publish) in the same
+    /// Turns pending domain events into audit rows in the same
     /// transaction as the aggregate change. The trail is complete because no code path can change state
     /// without also writing the audit row.
     /// </summary>
@@ -201,25 +214,6 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
                     Data = payload,
                     OccurredAt = now,
                 });
-                if (evt.Publish)
-                {
-                    OutboxMessages.Add(new OutboxMessage
-                    {
-                        SessionId = evt.SessionId,
-                        EventType = evt.EventType,
-                        Payload = JsonSerializer.Serialize(new
-                        {
-                            sessionId = evt.SessionId,
-                            applicantReference = session.ApplicantReference,
-                            clientId = session.ClientId,
-                            status = session.Status.ToString(),
-                            data = evt.Data,
-                            correlationId = requestContext.CorrelationId,
-                            occurredAt = now,
-                        }, Json),
-                        OccurredAt = now,
-                    });
-                }
             }
         }
 

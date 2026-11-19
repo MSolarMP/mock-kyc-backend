@@ -1,6 +1,4 @@
 using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Encodings.Web;
 using Kyc.Domain;
 using Kyc.Infrastructure.Common;
@@ -21,65 +19,53 @@ public static class AuthSchemes
 
 public static class Policies
 {
+    /// <summary>A partner system, or the partner's back office acting for one of its reviewers.</summary>
     public const string Partner = "partner";
-    public const string Reviewer = "reviewer";
-    public const string PartnerOrReviewer = "partner-or-reviewer";
     public const string Customer = "customer";
 }
 
 public static class KycClaims
 {
-    public const string ClientId = "kyc:client_id";
+    public const string PartnerId = "kyc:partner_id";
     public const string SessionId = "kyc:session_id";
     public const string AccessTokenId = "kyc:access_token_id";
     public const string Channel = "kyc:channel";
 }
 
-public sealed class ApiClientOptions
-{
-    public const string Section = "ApiClients";
-    public string ClientId { get; set; } = "";
-    public string Key { get; set; } = "";
-    public string[] Roles { get; set; } = [];
-}
-
 /// <summary>
-/// Server-to-server auth for partner/onboarding systems and back-office tools.
-/// Stand-in for OAuth2 client credentials or mTLS through an API gateway. Keys come from config/secrets here.
+/// Server-to-server auth for partner systems. Keys live hashed in <c>partner_api_keys</c>; a request's key is hashed
+/// and looked up by that hash (unique index), so the plaintext is never stored or compared.
+/// Production would put OAuth2 client credentials or mTLS in front of this (see docs).
 /// </summary>
 public sealed class ApiKeyAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
     UrlEncoder encoder,
-    IConfiguration config,
+    KycDbContext db,
     RequestContext requestContext)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         if (!Request.Headers.TryGetValue("X-Api-Key", out var provided) || string.IsNullOrEmpty(provided))
-            return Task.FromResult(AuthenticateResult.NoResult());
+            return AuthenticateResult.NoResult();
 
-        var clients = config.GetSection(ApiClientOptions.Section).Get<ApiClientOptions[]>() ?? [];
-        var providedHash = SHA256.HashData(Encoding.UTF8.GetBytes(provided.ToString()));
-        // Constant-time comparison of hashes, so timing doesn't leak how much of a key was right.
-        var client = clients.FirstOrDefault(c =>
-            CryptographicOperations.FixedTimeEquals(SHA256.HashData(Encoding.UTF8.GetBytes(c.Key)), providedHash));
-        if (client is null)
-            return Task.FromResult(AuthenticateResult.Fail("Invalid API key."));
+        var hash = Tokens.Hash(provided.ToString());
+        var partnerId = await db.PartnerApiKeys.AsNoTracking()
+            .Where(k => k.KeyHash == hash && k.RevokedAt == null)
+            .Join(db.Partners.Where(p => p.IsActive), k => k.PartnerId, p => p.Id, (k, p) => p.Id)
+            .SingleOrDefaultAsync();
+        if (partnerId is null)
+            return AuthenticateResult.Fail("Invalid API key.");
 
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, client.ClientId),
-            new(KycClaims.ClientId, client.ClientId),
-        };
-        claims.AddRange(client.Roles.Select(r => new Claim(ClaimTypes.Role, r)));
-
-        requestContext.SetActor(client.Roles.Contains(Policies.Reviewer) ? ActorType.Reviewer : ActorType.ApiClient,
-            client.ClientId);
-
-        var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name));
-        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name)));
+        requestContext.SetActor(ActorType.Partner, $"partner:{partnerId}");
+        var identity = new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, partnerId),
+            new Claim(KycClaims.PartnerId, partnerId),
+            new Claim(ClaimTypes.Role, Policies.Partner),
+        ], Scheme.Name);
+        return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name));
     }
 }
 
@@ -125,10 +111,8 @@ public sealed class SessionTokenAuthenticationHandler(
 
 public static class ClaimsPrincipalExtensions
 {
-    public static string ClientId(this ClaimsPrincipal user) =>
-        user.FindFirstValue(KycClaims.ClientId) ?? throw new UnauthorizedAccessException();
-
-    public static bool IsReviewer(this ClaimsPrincipal user) => user.IsInRole(Policies.Reviewer);
+    public static string PartnerId(this ClaimsPrincipal user) =>
+        user.FindFirstValue(KycClaims.PartnerId) ?? throw new UnauthorizedAccessException();
 
     public static Guid SessionId(this ClaimsPrincipal user) =>
         Guid.Parse(user.FindFirstValue(KycClaims.SessionId) ?? throw new UnauthorizedAccessException());

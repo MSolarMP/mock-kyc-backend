@@ -12,7 +12,6 @@ using Kyc.Infrastructure.Storage;
 using Kyc.Infrastructure.Workflow;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using QRCoder;
 
 namespace Kyc.Api.Endpoints;
 
@@ -79,11 +78,9 @@ public static partial class ClientEndpoints
         metrics.Handoff("issued");
 
         // Token in the URL *fragment*: browsers don't send fragments to servers, so it stays out of access logs,
-        // proxies and Referer headers.
+        // proxies and Referer headers. The front end renders the URL as a QR code.
         var url = $"{options.Value.HandoffBaseUrl}#token={token}";
-        using var qr = new QRCodeGenerator().CreateQrCode(url, QRCodeGenerator.ECCLevel.M);
-        var png = new PngByteQRCode(qr).GetGraphic(8);
-        return Results.Ok(new CreateHandoffResponse(url, handoff.ExpiresAt, Convert.ToBase64String(png)));
+        return Results.Ok(new CreateHandoffResponse(url, handoff.ExpiresAt));
     }
 
     private static async Task<IResult> RedeemHandoff(RedeemHandoffRequest request, KycDbContext db,

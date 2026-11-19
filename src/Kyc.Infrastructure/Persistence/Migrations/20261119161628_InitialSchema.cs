@@ -22,7 +22,7 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                     session_id = table.Column<Guid>(type: "uuid", nullable: false),
                     event_type = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
                     actor_type = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
-                    actor_id = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
+                    actor_id = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
                     correlation_id = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
                     ip_address = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
                     data = table.Column<string>(type: "jsonb", nullable: false),
@@ -54,22 +54,19 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "outbox_messages",
+                name: "partners",
                 columns: table => new
                 {
-                    id = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityAlwaysColumn),
-                    session_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    event_type = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
-                    payload = table.Column<string>(type: "jsonb", nullable: false),
-                    occurred_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    published_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    attempts = table.Column<int>(type: "integer", nullable: false),
-                    last_error = table.Column<string>(type: "text", nullable: true)
+                    id = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    is_active = table.Column<bool>(type: "boolean", nullable: false),
+                    image_retention_days = table.Column<int>(type: "integer", nullable: false),
+                    webhook_url = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("pk_outbox_messages", x => x.id);
+                    table.PrimaryKey("pk_partners", x => x.id);
                 });
 
             migrationBuilder.CreateTable(
@@ -94,35 +91,6 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "verification_sessions",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
-                    applicant_reference = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
-                    client_id = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
-                    channel = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
-                    status = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
-                    document_attempts = table.Column<int>(type: "integer", nullable: false),
-                    selfie_attempts = table.Column<int>(type: "integer", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    expires_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    completed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    idempotency_key = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
-                    idempotency_request_hash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
-                    created_ip = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
-                    created_user_agent = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: true),
-                    device_fingerprint = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
-                    document_number_hash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
-                    extracted_identity_encrypted = table.Column<byte[]>(type: "bytea", nullable: true),
-                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("pk_verification_sessions", x => x.id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "workflow_jobs",
                 columns: table => new
                 {
@@ -144,6 +112,63 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("pk_workflow_jobs", x => x.id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "partner_api_keys",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    partner_id = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    key_hash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    key_prefix = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    revoked_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_partner_api_keys", x => x.id);
+                    table.ForeignKey(
+                        name: "fk_partner_api_keys_partners_partner_id",
+                        column: x => x.partner_id,
+                        principalTable: "partners",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "verification_sessions",
+                columns: table => new
+                {
+                    id = table.Column<Guid>(type: "uuid", nullable: false),
+                    applicant_reference = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    partner_id = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    channel = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
+                    status = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
+                    document_attempts = table.Column<int>(type: "integer", nullable: false),
+                    selfie_attempts = table.Column<int>(type: "integer", nullable: false),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    expires_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    completed_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    idempotency_key = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    idempotency_request_hash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    created_ip = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    created_user_agent = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: true),
+                    device_fingerprint = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
+                    document_number_hash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    extracted_identity_encrypted = table.Column<byte[]>(type: "bytea", nullable: true),
+                    xmin = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_verification_sessions", x => x.id);
+                    table.ForeignKey(
+                        name: "fk_verification_sessions_partners_partner_id",
+                        column: x => x.partner_id,
+                        principalTable: "partners",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -271,10 +296,15 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "ix_outbox_messages_unpublished",
-                table: "outbox_messages",
-                column: "id",
-                filter: "published_at IS NULL");
+                name: "ix_partner_api_keys_key_hash",
+                table: "partner_api_keys",
+                column: "key_hash",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_partner_api_keys_partner_id",
+                table: "partner_api_keys",
+                column: "partner_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_provider_checks_artifact_id_type",
@@ -299,17 +329,6 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "ix_verification_sessions_client_id_applicant_reference",
-                table: "verification_sessions",
-                columns: new[] { "client_id", "applicant_reference" });
-
-            migrationBuilder.CreateIndex(
-                name: "ix_verification_sessions_client_id_idempotency_key",
-                table: "verification_sessions",
-                columns: new[] { "client_id", "idempotency_key" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
                 name: "ix_verification_sessions_created_ip_created_at",
                 table: "verification_sessions",
                 columns: new[] { "created_ip", "created_at" });
@@ -319,6 +338,17 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 table: "verification_sessions",
                 column: "document_number_hash",
                 filter: "document_number_hash IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_verification_sessions_partner_id_applicant_reference",
+                table: "verification_sessions",
+                columns: new[] { "partner_id", "applicant_reference" });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_verification_sessions_partner_id_idempotency_key",
+                table: "verification_sessions",
+                columns: new[] { "partner_id", "idempotency_key" },
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "ix_verification_sessions_status_updated_at",
@@ -339,6 +369,7 @@ namespace Kyc.Infrastructure.Persistence.Migrations
             // Audit trail is append-only, enforced by the database rather than by convention, so it holds even for
             // code paths (or people) that bypass the application. In production the app role would also have
             // only INSERT/SELECT on this table, and the table is shipped to WORM storage / a SIEM.
+            // NOTE: hand-written. Regenerating this migration drops it; re-add it.
             migrationBuilder.Sql("""
                 CREATE FUNCTION audit_events_block_mutation() RETURNS trigger AS $$
                 BEGIN
@@ -377,7 +408,7 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 name: "handoff_tokens");
 
             migrationBuilder.DropTable(
-                name: "outbox_messages");
+                name: "partner_api_keys");
 
             migrationBuilder.DropTable(
                 name: "provider_checks");
@@ -390,6 +421,9 @@ namespace Kyc.Infrastructure.Persistence.Migrations
 
             migrationBuilder.DropTable(
                 name: "verification_sessions");
+
+            migrationBuilder.DropTable(
+                name: "partners");
         }
     }
 }

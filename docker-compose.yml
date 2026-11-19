@@ -60,6 +60,7 @@ services:
       Kyc__Roles: worker
       Database__MigrateOnStartup: "false"
       Storage__EnsureBucketOnStartup: "false"
+      Partners__SeedOnStartup: "false"   # the api container seeds dev partners
     depends_on:
       api: { condition: service_started }
     # Scale workers independently: docker compose up --scale worker=3

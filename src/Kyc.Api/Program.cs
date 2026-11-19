@@ -15,7 +15,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -51,9 +50,6 @@ builder.Services.AddAuthentication(AuthSchemes.Default)
     .AddScheme<AuthenticationSchemeOptions, SessionTokenAuthenticationHandler>(AuthSchemes.SessionToken, null);
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(Policies.Partner, p => p.AddAuthenticationSchemes(AuthSchemes.ApiKey).RequireRole(Policies.Partner))
-    .AddPolicy(Policies.Reviewer, p => p.AddAuthenticationSchemes(AuthSchemes.ApiKey).RequireRole(Policies.Reviewer))
-    .AddPolicy(Policies.PartnerOrReviewer, p => p.AddAuthenticationSchemes(AuthSchemes.ApiKey)
-        .RequireRole(Policies.Partner, Policies.Reviewer))
     .AddPolicy(Policies.Customer, p => p.AddAuthenticationSchemes(AuthSchemes.SessionToken)
         .RequireClaim(KycClaims.SessionId));
 
@@ -72,7 +68,7 @@ builder.Services.AddRateLimiter(o =>
             TokenLimit = 60, TokensPerPeriod = 60, ReplenishmentPeriod = TimeSpan.FromMinutes(1),
         }));
     o.AddPolicy("partner", ctx => RateLimitPartition.GetTokenBucketLimiter(
-        ctx.User.FindFirstValue(KycClaims.ClientId) ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        ctx.User.FindFirstValue(KycClaims.PartnerId) ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new TokenBucketRateLimiterOptions
         {
             TokenLimit = 600, TokensPerPeriod = 600, ReplenishmentPeriod = TimeSpan.FromMinutes(1),
@@ -95,12 +91,9 @@ builder.Services.AddOpenTelemetry()
     .WithMetrics(m => m
         .AddMeter(KycMetrics.MeterName)
         .AddAspNetCoreInstrumentation()
-        .AddPrometheusExporter())
-    .WithTracing(t =>
-    {
-        t.AddSource(KycMetrics.ActivitySource.Name).AddAspNetCoreInstrumentation();
-        if (!string.IsNullOrEmpty(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"])) t.AddOtlpExporter();
-    });
+        .AddPrometheusExporter());
+// Distributed tracing is designed but not wired up: workflow spans already use KycMetrics.ActivitySource, so enabling
+// it is .WithTracing(t => t.AddSource(...).AddAspNetCoreInstrumentation().AddOtlpExporter()) plus a collector.
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<KycDbContext>("database", tags: ["ready"]);
 
@@ -112,12 +105,12 @@ builder.Services.AddSwaggerGen(c =>
     {
         Title = "KYC Verification Platform API",
         Version = "v1",
-        Description = "Partner (X-Api-Key), reviewer (X-Api-Key) and customer-device (Bearer session token) APIs.",
+        Description = "Partner (X-Api-Key), reviewer (X-Api-Key + X-Reviewer-Id) and customer-device (Bearer session token) APIs.",
     });
     c.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
     {
         Type = SecuritySchemeType.ApiKey, In = ParameterLocation.Header, Name = "X-Api-Key",
-        Description = "Partner / reviewer key, e.g. dev-partner-key or dev-reviewer-key",
+        Description = "Partner key, e.g. dev-partner-key. Review endpoints also need an X-Reviewer-Id header.",
     });
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
@@ -170,6 +163,10 @@ static async Task InitialiseAsync(WebApplication app)
         logger.LogInformation("Applying database migrations");
         await scope.ServiceProvider.GetRequiredService<KycDbContext>().Database.MigrateAsync();
     }
+    var partners = config.GetSection(PartnerSeedOptions.Section).Get<PartnerSeedOptions>();
+    if (partners is { SeedOnStartup: true })
+        await PartnerSeeder.SeedAsync(scope.ServiceProvider.GetRequiredService<KycDbContext>(), partners,
+            TimeProvider.System.GetUtcNow(), CancellationToken.None);
     if (config.GetValue("Storage:EnsureBucketOnStartup", false))
         await scope.ServiceProvider.GetRequiredService<IObjectStorage>().EnsureBucketAsync(CancellationToken.None);
 }

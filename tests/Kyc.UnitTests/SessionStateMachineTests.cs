@@ -62,7 +62,7 @@ public class SessionStateMachineTests
 
         Assert.Equal(SessionStatus.DocumentSubmitted, session.Status);
         Assert.Equal(1, session.DocumentAttempts);
-        Assert.Contains(session.PendingEvents, e => e.EventType == AuditEventTypes.StatusChanged && e.Publish);
+        Assert.Contains(session.PendingEvents, e => e.EventType == AuditEventTypes.StatusChanged);
     }
 
     [Fact]
@@ -114,7 +114,7 @@ public class SessionStateMachineTests
         session.ApplyDecision(Decision.Automated(session.Id, DecisionOutcome.Approved, ["ALL_CHECKS_PASSED"], "v1", 0, Now), Now);
         Assert.Equal(SessionStatus.Approved, session.Status);
         Assert.Equal(Now, session.CompletedAt);
-        Assert.Contains(session.PendingEvents, e => e.EventType == AuditEventTypes.DecisionMade && e.Publish);
+        Assert.Contains(session.PendingEvents, e => e.EventType == AuditEventTypes.DecisionMade);
     }
 
     [Fact]

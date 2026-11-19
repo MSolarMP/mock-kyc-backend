@@ -20,7 +20,7 @@ public sealed class KycApiFixture : IAsyncLifetime
 {
     public const string PartnerKey = "it-partner-key";
     public const string OtherPartnerKey = "it-other-partner-key";
-    public const string ReviewerKey = "it-reviewer-key";
+    public const string ReviewerId = "staff-1042";
 
     private const string S3Config = """
         {"identities":[{"name":"it","credentials":[{"accessKey":"it-access","secretKey":"it-secret"}],
@@ -63,18 +63,14 @@ public sealed class KycApiFixture : IAsyncLifetime
                 ["Storage:Bucket"] = "kyc-it",
                 ["Storage:EnsureBucketOnStartup"] = "true",
                 ["Worker:PollIntervalMs"] = "100",
-                ["Providers:Mock:LatencyMs"] = "0",
+                ["Providers:VendorA:SandboxLatencyMs"] = "0",
                 ["Retention:SweepIntervalSeconds"] = "3600",
                 ["RateLimits:HandoffRedeemPerMinute"] = "1000",
-                ["ApiClients:0:ClientId"] = "partner-a",
-                ["ApiClients:0:Key"] = PartnerKey,
-                ["ApiClients:0:Roles:0"] = "partner",
-                ["ApiClients:1:ClientId"] = "partner-b",
-                ["ApiClients:1:Key"] = OtherPartnerKey,
-                ["ApiClients:1:Roles:0"] = "partner",
-                ["ApiClients:2:ClientId"] = "reviewer-1",
-                ["ApiClients:2:Key"] = ReviewerKey,
-                ["ApiClients:2:Roles:0"] = "reviewer",
+                ["Partners:SeedOnStartup"] = "true",
+                ["Partners:Seed:0:Id"] = "partner-a",
+                ["Partners:Seed:0:ApiKey"] = PartnerKey,
+                ["Partners:Seed:1:Id"] = "partner-b",
+                ["Partners:Seed:1:ApiKey"] = OtherPartnerKey,
                 ["Logging:Console:FormatterName"] = "simple",
                 ["Logging:LogLevel:Default"] = "Warning",
             };
@@ -93,6 +89,14 @@ public sealed class KycApiFixture : IAsyncLifetime
     {
         var c = Factory.CreateClient();
         c.DefaultRequestHeaders.Add("X-Api-Key", key);
+        return c;
+    }
+
+    /// <summary>Partner A's back office acting for one of its reviewers.</summary>
+    public HttpClient Reviewer(string reviewerId = ReviewerId)
+    {
+        var c = Partner();
+        c.DefaultRequestHeaders.Add("X-Reviewer-Id", reviewerId);
         return c;
     }
 

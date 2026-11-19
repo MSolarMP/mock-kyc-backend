@@ -1,7 +1,8 @@
 using System.Security.Cryptography;
 using Kyc.Domain;
 using Kyc.Domain.Workflow;
-using Kyc.Infrastructure.Providers.Mock;
+using Kyc.Infrastructure.Providers;
+using Kyc.Infrastructure.Providers.VendorA;
 using Kyc.Infrastructure.Security;
 using Microsoft.Extensions.Options;
 
@@ -81,21 +82,62 @@ public class SecurityTests
     }
 }
 
-public class MockMarkerTests
+public class VendorASandboxTests
 {
     [Fact]
     public void Parses_flags_and_values()
     {
-        var (markers, values) = MockMarkers.Parse("\xFF\xD8 junk KYC_MOCK:FACE_WEAK more KYC_MOCK:DOC_NUMBER=8001015009087 end");
+        var (markers, values) = SandboxMarkers.Parse("ÿØ junk KYC_MOCK:FACE_WEAK more KYC_MOCK:DOC_NUMBER=8001015009087 end");
         Assert.Contains("FACE_WEAK", markers);
         Assert.Equal("8001015009087", values["DOC_NUMBER"]);
     }
 
     [Fact]
-    public void Flaky_provider_fails_first_attempt_only()
+    public void Flaky_vendor_fails_first_attempt_only()
     {
         var markers = new HashSet<string> { "PROVIDER_FLAKY" };
-        Assert.Throws<Kyc.Infrastructure.Providers.TransientProviderException>(() => MockMarkers.ThrowIfFaulted(markers, 1));
-        MockMarkers.ThrowIfFaulted(markers, 2);
+        Assert.Equal(504, Assert.Throws<VendorAApiException>(() => SandboxMarkers.ThrowIfFaulted(markers, 1)).StatusCode);
+        SandboxMarkers.ThrowIfFaulted(markers, 2);
+    }
+}
+
+/// <summary>The translation layer: Vendor A's vocabulary must map onto ours, and nothing unknown may become a pass.</summary>
+public class VendorAAdapterTests
+{
+    [Theory]
+    [InlineData("clear", CheckOutcome.Passed)]
+    [InlineData("consider", CheckOutcome.Inconclusive)]
+    [InlineData("unidentified", CheckOutcome.Unreadable)]
+    [InlineData("rejected", CheckOutcome.Failed)]
+    [InlineData("something_new", CheckOutcome.Inconclusive)]
+    public void Maps_verdicts(string result, CheckOutcome expected) =>
+        Assert.Equal(expected, VendorAAdapter.MapOutcome(result));
+
+    [Fact]
+    public void Normalises_scores_to_0_1()
+    {
+        Assert.Equal(0.72m, VendorAAdapter.MapScore(72));
+        Assert.Equal(1m, VendorAAdapter.MapScore(140));
+        Assert.Null(VendorAAdapter.MapScore(null));
+    }
+
+    [Fact]
+    public void Maps_known_reasons_and_keeps_unknown_ones()
+    {
+        var reasons = VendorAAdapter.MapReasons(["visual_authenticity", "hologram_missing"]);
+        Assert.Equal(["TAMPERING_DETECTED", "VENDOR_A_HOLOGRAM_MISSING"], reasons);
+    }
+
+    [Theory]
+    [InlineData(503, typeof(TransientProviderException))]
+    [InlineData(504, typeof(TransientProviderException))]
+    [InlineData(429, typeof(TransientProviderException))]
+    [InlineData(401, typeof(PermanentProviderException))]
+    [InlineData(400, typeof(PermanentProviderException))]
+    public async Task Classifies_http_errors(int status, Type expected)
+    {
+        var ex = await Record.ExceptionAsync(() =>
+            VendorAAdapter.Call(() => throw new VendorAApiException(status, "boom")));
+        Assert.IsType(expected, ex);
     }
 }

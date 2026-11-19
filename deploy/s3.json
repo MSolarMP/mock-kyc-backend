@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "kyc-service",
+      "credentials": [{ "accessKey": "kyc-s3-access", "secretKey": "kyc-s3-secret-dev-only" }],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

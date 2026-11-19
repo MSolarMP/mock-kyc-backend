@@ -1,0 +1,71 @@
+# Local stack: Postgres + SeaweedFS (S3-compatible object storage) + the KYC service in two roles.
+#   docker compose up -d postgres s3           -> infra only (run the API from Visual Studio)
+#   docker compose up --build                  -> everything
+name: kyc
+
+x-kyc-env: &kyc-env
+  ConnectionStrings__Kyc: Host=postgres;Port=5432;Database=kyc;Username=kyc;Password=kyc
+  Storage__ServiceUrl: http://s3:8333
+  # Pre-signed URLs are used by clients on the host machine, so they're signed for localhost.
+  Storage__PublicServiceUrl: http://localhost:9000
+  Storage__AccessKey: kyc-s3-access
+  Storage__SecretKey: kyc-s3-secret-dev-only
+  # The demo script redeems many QR codes from one IP; production keeps the default of 10/min.
+  RateLimits__HandoffRedeemPerMinute: "100"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: kyc
+      POSTGRES_USER: kyc
+      POSTGRES_PASSWORD: kyc
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kyc -d kyc"]
+      interval: 3s
+      retries: 20
+
+  # SeaweedFS speaks the S3 API. (MinIO no longer publishes free container images.) In production this is AWS S3
+  # or any S3-compatible store; the app only uses the S3 API.
+  s3:
+    image: chrislusf/seaweedfs:3.97
+    command: server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -master.volumeSizeLimitMB=256
+    ports: ["9000:8333"]
+    volumes:
+      - s3data:/data
+      - ./deploy/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/healthz || exit 1"]
+      interval: 3s
+      retries: 30
+
+  api:
+    build: .
+    environment:
+      <<: *kyc-env
+      Kyc__Roles: api
+      Database__MigrateOnStartup: "true"
+      Storage__EnsureBucketOnStartup: "true"
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      s3: { condition: service_healthy }
+
+  worker:
+    build: .
+    environment:
+      <<: *kyc-env
+      Kyc__Roles: worker
+      Database__MigrateOnStartup: "false"
+      Storage__EnsureBucketOnStartup: "false"
+    depends_on:
+      api: { condition: service_started }
+    # Scale workers independently: docker compose up --scale worker=3
+    deploy:
+      replicas: 1
+
+volumes:
+  pgdata:
+  s3data:

@@ -1,0 +1,138 @@
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Kyc.Api.Auth;
+using Kyc.Api.Contracts;
+using Kyc.Api.Infrastructure;
+using Kyc.Domain;
+using Kyc.Infrastructure.Observability;
+using Kyc.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Npgsql;
+
+namespace Kyc.Api.Endpoints;
+
+/// <summary>Server-to-server API for the onboarding system that owns the customer relationship.</summary>
+public static class PartnerEndpoints
+{
+    public static void MapPartnerEndpoints(this IEndpointRouteBuilder app)
+    {
+        var group = app.MapGroup("/v1/verification-sessions").WithTags("Verification sessions (partner)")
+            .RequireRateLimiting("partner");
+
+        group.MapPost("", CreateSession).RequireAuthorization(Policies.Partner)
+            .WithSummary("Start a verification session for an applicant")
+            .WithDescription("Requires an Idempotency-Key header. Retrying with the same key and body returns the same session (with a fresh client token).");
+
+        group.MapGet("/{sessionId:guid}", GetSession).RequireAuthorization(Policies.PartnerOrReviewer)
+            .WithSummary("Get the full status, check results and decisions of a session");
+
+        group.MapGet("/{sessionId:guid}/events", GetAuditTrail).RequireAuthorization(Policies.PartnerOrReviewer)
+            .WithSummary("Get the append-only audit trail of a session");
+    }
+
+    private static async Task<IResult> CreateSession(
+        CreateSessionRequest request,
+        HttpContext http,
+        ClaimsPrincipal user,
+        KycDbContext db,
+        TimeProvider clock,
+        KycMetrics metrics,
+        IOptions<KycApiOptions> options,
+        CancellationToken ct)
+    {
+        var idempotencyKey = http.Request.Headers["Idempotency-Key"].ToString();
+        if (idempotencyKey.Length is 0 or > 128)
+            return Problems.Validation(("Idempotency-Key", "Header is required (1-128 characters)."));
+        if (string.IsNullOrWhiteSpace(request.ApplicantReference) || request.ApplicantReference.Length > 128)
+            return Problems.Validation((nameof(request.ApplicantReference), "Required, at most 128 characters."));
+
+        var clientId = user.ClientId();
+        var requestHash = Convert.ToHexStringLower(SHA256.HashData(
+            Encoding.UTF8.GetBytes(JsonSerializer.Serialize(request))));
+        var now = clock.GetUtcNow();
+
+        var existing = await FindByIdempotencyKey(db, clientId, idempotencyKey, ct);
+        if (existing is not null)
+            return await Replay(existing, requestHash, request, db, now, ct);
+
+        var customer = request.Customer;
+        var session = VerificationSession.Create(clientId, request.ApplicantReference.Trim(), request.Channel,
+            idempotencyKey, requestHash, TimeSpan.FromMinutes(options.Value.SessionLifetimeMinutes), now,
+            customer?.IpAddress, customer?.UserAgent, customer?.DeviceFingerprint);
+        db.Sessions.Add(session);
+        var (token, tokenEntity) = AccessTokens.Issue(db, session, request.Channel, viaHandoff: false,
+            customer?.IpAddress, customer?.UserAgent, customer?.DeviceFingerprint, now);
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            // Two concurrent retries with the same key: the loser replays the winner's session.
+            db.ChangeTracker.Clear();
+            existing = await FindByIdempotencyKey(db, clientId, idempotencyKey, ct);
+            return await Replay(existing!, requestHash, request, db, now, ct);
+        }
+
+        metrics.SessionCreated(request.Channel.ToString());
+        return Results.Created($"/v1/verification-sessions/{session.Id}",
+            new CreateSessionResponse(session.Id, session.Status, session.ExpiresAt, token, tokenEntity.ExpiresAt));
+    }
+
+    private static Task<VerificationSession?> FindByIdempotencyKey(KycDbContext db, string clientId, string key,
+        CancellationToken ct) =>
+        db.Sessions.SingleOrDefaultAsync(s => s.ClientId == clientId && s.IdempotencyKey == key, ct);
+
+    private static async Task<IResult> Replay(VerificationSession existing, string requestHash,
+        CreateSessionRequest request, KycDbContext db, DateTimeOffset now, CancellationToken ct)
+    {
+        if (existing.IdempotencyRequestHash != requestHash)
+            throw new BusinessRuleException("idempotency_key_reused",
+                "This Idempotency-Key was already used with a different request body.");
+        existing.EnsureUsableByCustomer(now);
+
+        // Token plaintext is never stored, so a replay issues a fresh one. The earlier token stays valid.
+        var (token, entity) = AccessTokens.Issue(db, existing, request.Channel, false,
+            request.Customer?.IpAddress, request.Customer?.UserAgent, request.Customer?.DeviceFingerprint, now);
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new CreateSessionResponse(existing.Id, existing.Status, existing.ExpiresAt, token, entity.ExpiresAt));
+    }
+
+    private static async Task<IResult> GetSession(Guid sessionId, ClaimsPrincipal user, KycDbContext db,
+        TimeProvider clock, CancellationToken ct)
+    {
+        var session = await LoadVisibleSession(db, user, sessionId, ct);
+        return Results.Ok(session.ToView(clock.GetUtcNow()));
+    }
+
+    private static async Task<IResult> GetAuditTrail(Guid sessionId, ClaimsPrincipal user, KycDbContext db,
+        long? after, int? limit, CancellationToken ct)
+    {
+        await LoadVisibleSession(db, user, sessionId, ct, includeChildren: false);
+        var take = Math.Clamp(limit ?? 100, 1, 500);
+        var events = await db.AuditEvents.AsNoTracking()
+            .Where(e => e.SessionId == sessionId && e.Id > (after ?? 0))
+            .OrderBy(e => e.Id)
+            .Take(take)
+            .ToListAsync(ct);
+        return Results.Ok(events.Select(e => new AuditEventView(e.Id, e.EventType, e.ActorType, e.ActorId,
+            e.CorrelationId, e.OccurredAt, JsonDocument.Parse(e.Data).RootElement)));
+    }
+
+    /// <summary>Partners see only their own sessions. Reviewers see all. Someone else's session returns 404, not 403, so ids can't be enumerated.</summary>
+    internal static async Task<VerificationSession> LoadVisibleSession(KycDbContext db, ClaimsPrincipal user,
+        Guid sessionId, CancellationToken ct, bool includeChildren = true)
+    {
+        var query = db.Sessions.AsQueryable();
+        if (includeChildren)
+            query = query.Include(s => s.Artifacts).Include(s => s.Checks).Include(s => s.Decisions).AsSplitQuery();
+        var session = await query.SingleOrDefaultAsync(s => s.Id == sessionId, ct);
+        if (session is null || (!user.IsReviewer() && session.ClientId != user.ClientId()))
+            throw new NotFoundException("Verification session");
+        return session;
+    }
+}

@@ -1,0 +1,79 @@
+### KYC Platform: manual walkthrough (Visual Studio / Rider / VS Code REST Client)
+### Run top to bottom. Image uploads go to pre-signed URLs, so they're easier with scripts/demo.ps1.
+
+@baseUrl = http://localhost:8080
+@partnerKey = dev-partner-key
+@reviewerKey = dev-reviewer-key
+
+### 1. Partner creates a session (try sending it twice: same Idempotency-Key returns the same session)
+# @name create
+POST {{baseUrl}}/v1/verification-sessions
+X-Api-Key: {{partnerKey}}
+Idempotency-Key: demo-0001
+Content-Type: application/json
+
+{
+  "applicantReference": "customer-42",
+  "channel": "Web",
+  "customer": { "ipAddress": "198.51.100.7", "userAgent": "Mozilla/5.0 Desktop", "deviceFingerprint": "fp-desktop" }
+}
+
+###
+@sessionId = {{create.response.body.$.sessionId}}
+@desktopToken = {{create.response.body.$.clientToken}}
+
+### 2. Desktop: current state / next action
+GET {{baseUrl}}/v1/client/session
+Authorization: Bearer {{desktopToken}}
+
+### 3. Desktop: create the QR handoff (token is in the URL fragment after #token=)
+# @name handoff
+POST {{baseUrl}}/v1/client/session/handoff
+Authorization: Bearer {{desktopToken}}
+
+### 4. Phone: redeem the QR token (paste the value after #token=)
+# @name redeem
+POST {{baseUrl}}/v1/handoff/redeem
+Content-Type: application/json
+User-Agent: Mozilla/5.0 (iPhone) Mobile
+
+{ "token": "PASTE_TOKEN_FROM_HANDOFF_URL", "deviceFingerprint": "fp-phone" }
+
+###
+@phoneToken = {{redeem.response.body.$.clientToken}}
+
+### 5. Phone: request an upload slot (then PUT the file to uploadUrl with Content-Type: image/jpeg)
+POST {{baseUrl}}/v1/client/session/artifacts
+Authorization: Bearer {{phoneToken}}
+Content-Type: application/json
+
+{ "type": "IdentityDocument", "contentType": "image/jpeg", "sizeBytes": 12345, "sha256": "<sha256 of the file>" }
+
+### 6. Partner: full session view (checks, decisions)
+GET {{baseUrl}}/v1/verification-sessions/{{sessionId}}
+X-Api-Key: {{partnerKey}}
+
+### 7. Partner: audit trail
+GET {{baseUrl}}/v1/verification-sessions/{{sessionId}}/events
+X-Api-Key: {{partnerKey}}
+
+### 8. Reviewer: manual review queue
+GET {{baseUrl}}/v1/reviews
+X-Api-Key: {{reviewerKey}}
+
+### 9. Reviewer: open a case (identity, short-lived image links, related sessions; the access is audited)
+GET {{baseUrl}}/v1/reviews/{{sessionId}}
+X-Api-Key: {{reviewerKey}}
+
+### 10. Reviewer: decide
+POST {{baseUrl}}/v1/reviews/{{sessionId}}/decision
+X-Api-Key: {{reviewerKey}}
+Content-Type: application/json
+
+{ "outcome": "Approved", "reasonCode": "VERIFIED_MANUALLY", "notes": "Document and selfie checked" }
+
+### Ops
+GET {{baseUrl}}/health/ready
+
+###
+GET {{baseUrl}}/metrics

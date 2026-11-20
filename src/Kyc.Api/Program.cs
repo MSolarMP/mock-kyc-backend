@@ -117,10 +117,19 @@ builder.Services.AddSwaggerGen(c =>
         Scheme = "bearer",
         Description = "Customer device token (clientToken from session creation or handoff redeem)",
     });
+    // Not auth, but declared as a scheme so Swagger's Authorize dialog has a field for it.
+    c.AddSecurityDefinition("ReviewerId", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.ApiKey,
+        In = ParameterLocation.Header,
+        Name = "X-Reviewer-Id",
+        Description = "Reviewer's staff id, e.g. staff-1042. Only needed for /v1/reviews endpoints.",
+    });
     c.AddSecurityRequirement(doc => new OpenApiSecurityRequirement
     {
         [new OpenApiSecuritySchemeReference("ApiKey", doc)] = [],
         [new OpenApiSecuritySchemeReference("Bearer", doc)] = [],
+        [new OpenApiSecuritySchemeReference("ReviewerId", doc)] = [],
     });
 });
 

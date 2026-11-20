@@ -53,7 +53,37 @@ codes leak to customers.
 | Partner backend | `X-Api-Key: dev-partner-key` | `POST /v1/verification-sessions` (requires `Idempotency-Key`), `GET /v1/verification-sessions/{id}`, `GET …/{id}/events` |
 | Customer device | `Authorization: Bearer <clientToken>` | `GET /v1/client/session`, `POST /v1/client/session/handoff`, `POST /v1/client/session/artifacts`, `POST …/artifacts/{id}/complete` |
 | Second device | none (token in body, rate-limited) | `POST /v1/handoff/redeem` |
-| Reviewer | `X-Api-Key: dev-reviewer-key` | `GET /v1/reviews`, `GET /v1/reviews/{id}`, `POST /v1/reviews/{id}/decision` |
+| Reviewer (partner back office) | `X-Api-Key: dev-partner-key` + `X-Reviewer-Id: <staff id>` | `GET /v1/reviews`, `GET /v1/reviews/{id}`, `POST /v1/reviews/{id}/decision` |
+
+### Credentials for local testing
+
+| Credential | Value | Where it comes from |
+|---|---|---|
+| Partner API key | `dev-partner-key` | Seeded on startup from `appsettings.json` (`Partners:Seed`, partner "Demo Bank"). Dev only. |
+| Reviewer id | any staff id, e.g. `staff-1042` | Not a secret. The partner's back office says which of its staff is acting, and it is written to the audit trail. |
+| Bearer token | the `clientToken` from a response | **Not fixed.** Issued per session: by `POST /v1/verification-sessions` (desktop) and by `POST /v1/handoff/redeem` (phone). It only grants access to that one session. |
+
+### Testing in Swagger
+
+**Full step-by-step guide with every outcome and error case: [`docs/TESTING.md`](docs/TESTING.md).** Quick version:
+
+1. Open http://localhost:8080/swagger, click **Authorize**, enter `dev-partner-key` under **ApiKey** and leave the rest empty.
+2. `POST /v1/verification-sessions` with header `Idempotency-Key: demo-0001` and body:
+   ```json
+   { "applicantReference": "customer-42", "channel": "Web",
+     "customer": { "ipAddress": "198.51.100.7", "userAgent": "Mozilla/5.0", "deviceFingerprint": "fp-desktop" } }
+   ```
+3. Copy `sessionId` and `clientToken` from the response.
+4. **Authorize** again and paste the `clientToken` under **Bearer** (without the word "Bearer"). The `/v1/client/session/...`
+   endpoints now act as the customer's desktop.
+5. To act as the phone, call `POST /v1/client/session/handoff`, take the value after `#token=` in `handoffUrl`, send it
+   to `POST /v1/handoff/redeem`, and put the new `clientToken` in **Bearer**.
+6. Partner views: `GET /v1/verification-sessions/{sessionId}` and `GET /v1/verification-sessions/{sessionId}/events` (audit trail).
+7. Review endpoints: also enter a staff id under **ReviewerId**. The queue only lists sessions in `ManualReview`
+   (see [Mock scenarios](#mock-scenarios) for how to trigger one).
+
+Image uploads go to pre-signed S3 URLs, which Swagger can't do. For the full journey use `scripts/demo.ps1`, or
+`requests.http` in Visual Studio, which chains the ids and tokens for you.
 
 Errors are RFC 7807 `application/problem+json` with a stable `code` (e.g. `invalid_state_transition`,
 `handoff_invalid`, `idempotency_key_reused`, `concurrent_modification`, `session_expired`).

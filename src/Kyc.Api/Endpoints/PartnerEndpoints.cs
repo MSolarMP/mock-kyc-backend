@@ -8,6 +8,7 @@ using Kyc.Api.Infrastructure;
 using Kyc.Domain;
 using Kyc.Infrastructure.Observability;
 using Kyc.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -35,7 +36,8 @@ public static class PartnerEndpoints
 
     private static async Task<IResult> CreateSession(
         CreateSessionRequest request,
-        HttpContext http,
+        // Nullable so a missing header gets our validation error below; bound here so Swagger shows the field.
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         ClaimsPrincipal user,
         KycDbContext db,
         TimeProvider clock,
@@ -43,8 +45,7 @@ public static class PartnerEndpoints
         IOptions<KycApiOptions> options,
         CancellationToken ct)
     {
-        var idempotencyKey = http.Request.Headers["Idempotency-Key"].ToString();
-        if (idempotencyKey.Length is 0 or > 128)
+        if (string.IsNullOrEmpty(idempotencyKey) || idempotencyKey.Length > 128)
             return Problems.Validation(("Idempotency-Key", "Header is required (1-128 characters)."));
         if (string.IsNullOrWhiteSpace(request.ApplicantReference) || request.ApplicantReference.Length > 128)
             return Problems.Validation((nameof(request.ApplicantReference), "Required, at most 128 characters."));

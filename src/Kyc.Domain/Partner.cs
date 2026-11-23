@@ -13,15 +13,12 @@ public class Partner
     // Days after the decision before images are purged.
     public int ImageRetentionDays { get; private set; }
 
-    // Webhook delivery isn't built yet.
-    public string? WebhookUrl { get; private set; }
-
     public DateTimeOffset CreatedAt { get; private set; }
 
     public List<PartnerApiKey> ApiKeys { get; private set; } = [];
 
     // Creates an active tenant; image retention must be at least one day.
-    public static Partner Create(string id, string name, int imageRetentionDays, string? webhookUrl, DateTimeOffset now)
+    public static Partner Create(string id, string name, int imageRetentionDays, DateTimeOffset now)
     {
         if (imageRetentionDays < 1) throw new BusinessRuleException("invalid_retention", "Retention must be at least 1 day.");
         return new Partner
@@ -30,7 +27,6 @@ public class Partner
             Name = name,
             IsActive = true,
             ImageRetentionDays = imageRetentionDays,
-            WebhookUrl = webhookUrl,
             CreatedAt = now,
         };
     }

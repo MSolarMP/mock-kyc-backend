@@ -61,7 +61,6 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                     name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     is_active = table.Column<bool>(type: "boolean", nullable: false),
                     image_retention_days = table.Column<int>(type: "integer", nullable: false),
-                    webhook_url = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>

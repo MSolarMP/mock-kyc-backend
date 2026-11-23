@@ -18,7 +18,6 @@ public sealed class PartnerSeedOptions
         // Plaintext key, dev/test only.
         public string ApiKey { get; set; } = "";
         public int ImageRetentionDays { get; set; } = 30;
-        public string? WebhookUrl { get; set; }
     }
 }
 
@@ -32,8 +31,7 @@ public static class PartnerSeeder
             var partner = await db.Partners.Include(p => p.ApiKeys).SingleOrDefaultAsync(p => p.Id == seed.Id, ct);
             if (partner is null)
             {
-                partner = Partner.Create(seed.Id, seed.Name.Length > 0 ? seed.Name : seed.Id, seed.ImageRetentionDays,
-                    seed.WebhookUrl, now);
+                partner = Partner.Create(seed.Id, seed.Name.Length > 0 ? seed.Name : seed.Id, seed.ImageRetentionDays, now);
                 db.Partners.Add(partner);
             }
 

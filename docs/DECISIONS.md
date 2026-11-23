@@ -43,7 +43,7 @@ Grading weights, for reference: System design 25%, Reliability/distributed syste
 ### Decision 1.1: The platform is a backend that partner (bank) systems call
 - **Options:** (A) a backend that the bank's systems call; (B) a standalone customer app with its own UI.
 - **Chosen: A.** The brief says *backend* and grades backend topics only. It's how real KYC vendors work: the bank creates a session server-side, the customer completes it, the bank gets the result. No frontend to build.
-- **Multi-tenant:** each bank is a *partner*. Every session carries a `partner_id`; each partner has its own API key and webhook URL and can only see its own sessions. Adding a bank is a database row, not a code change.
+- **Multi-tenant:** each bank is a *partner*. Every session carries a `partner_id`; each partner has its own API key and can only see its own sessions. Adding a bank is a database row, not a code change.
 
 ### Decision 1.2: Full audit trail and a reviewer API
 - The brief wants a full trail: when it started, what happened, the status before and after, who did it, where it came from, who reviewed and who approved.
@@ -211,7 +211,7 @@ If a worker crashes after the vendor answered but before saving, the job reruns 
 ### Decision 5.3: Tables
 | Table | Purpose / key point |
 |---|---|
-| `partners` | **New.** One row per bank: API key hash(es), webhook URL, webhook secret. Onboarding a bank needs no deploy. |
+| `partners` | **New.** One row per bank: API key hash(es), per-partner image retention. Onboarding a bank needs no deploy. (Webhook URL/secret columns come when the designed webhook is built.) |
 | `verification_sessions` | Current state. `UNIQUE (partner_id, idempotency_key)` prevents duplicate sessions on retried POSTs. |
 | `uploaded_files` | Image metadata only (type, size, SHA-256, S3 key). Bytes live in S3. |
 | `provider_checks` | Each vendor result: vendor, outcome, score, reasons, vendor reference. |
@@ -475,7 +475,7 @@ Swagger at `/swagger`, `requests.http`, `scripts/demo.ps1`, all updated for the 
 
 ### Final answers to the open questions
 - **Webhook delivery: design only.** Polling (`GET /v1/verification-sessions/{id}`) is the built mechanism; the webhook contract, signing and retry design go in ARCHITECTURE.md (10.6).
-- **`partners` table: build it.** Hashed API keys in the DB (replaces `ApiClients` config), webhook URL/secret columns (for the designed webhook), per-partner image retention (8.6). Onboarding a bank is a row insert.
+- **`partners` table: build it.** Hashed API keys in the DB (replaces `ApiClients` config) and per-partner image retention (8.6). Onboarding a bank is a row insert. (Webhook URL/secret columns are added when the designed webhook is built, not before.)
 
 ### Cut (remove from code, explain in docs)
 | Item | Reference |
@@ -517,7 +517,7 @@ Internal working list; remove before submission if preferred.
 - [x] Commit the current full implementation to a branch (e.g. `full-implementation`); nothing is committed yet.
 
 ### Code changes agreed so far
-- [x] Add `partners` table (API key hashes, webhook URL + secret columns, image retention days); replaces `ApiClients` config. (5.3, 6.1, 8.6, 11)
+- [x] Add `partners` table (API key hashes, image retention days); replaces `ApiClients` config. (Webhook URL/secret columns deferred until the webhook is built.) (5.3, 6.1, 8.6, 11)
 - [x] Remove `outbox_messages`, `OutboxPublisher`, and the outbox branch in `KycDbContext.SaveChangesAsync`. (5.5)
 - [x] Restructure mock providers into `Providers/VendorA/` (client with vendor-shaped responses, adapter, options); thresholds per vendor in config. Also added `PermanentProviderException` (4xx → dead letter at once) and a `PROVIDER_MISCONFIGURED` sandbox scenario. (4.1, 4.5)
 - [x] Reviewer actions via partner API key with a required `reviewerId`; actor recorded as `reviewer:<id> via partner:<id>`; remove the reviewer API-key role. (6.2)

@@ -32,6 +32,4 @@ public class SessionAccessToken
             CreatedAt = now,
             ExpiresAt = expiresAt,
         };
-
-    public bool IsActive(DateTimeOffset now) => RevokedAt is null && now < ExpiresAt;
 }

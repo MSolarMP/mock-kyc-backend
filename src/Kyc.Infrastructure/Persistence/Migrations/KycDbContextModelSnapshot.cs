@@ -306,11 +306,6 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
-                    b.Property<string>("WebhookUrl")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
-                        .HasColumnName("webhook_url");
-
                     b.HasKey("Id")
                         .HasName("pk_partners");
 

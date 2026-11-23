@@ -45,7 +45,6 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasMaxLength(64);
             e.Property(x => x.Name).HasMaxLength(200);
-            e.Property(x => x.WebhookUrl).HasMaxLength(500);
             e.HasMany(x => x.ApiKeys).WithOne().HasForeignKey(x => x.PartnerId);
         });
 

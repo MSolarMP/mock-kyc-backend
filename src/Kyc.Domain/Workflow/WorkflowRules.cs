@@ -11,6 +11,7 @@ public enum NextStep
 // Only image quality problems get a retry. Anything definitive goes straight to the decision.
 public static class WorkflowRules
 {
+    // What to do after a document check: continue, ask for a recapture, or go straight to the decision.
     public static NextStep AfterDocumentCheck(CheckOutcome outcome, int attemptsUsed) => outcome switch
     {
         CheckOutcome.Passed or CheckOutcome.Inconclusive => NextStep.Continue,
@@ -18,6 +19,7 @@ public static class WorkflowRules
         _ => NextStep.GoToDecision,
     };
 
+    // What to do after a liveness check: continue to face match, ask for a recapture, or go to the decision.
     public static NextStep AfterLivenessCheck(CheckOutcome outcome, int attemptsUsed) => outcome switch
     {
         CheckOutcome.Passed or CheckOutcome.Inconclusive => NextStep.Continue,

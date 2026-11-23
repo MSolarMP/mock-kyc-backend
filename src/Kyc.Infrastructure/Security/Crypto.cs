@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Infrastructure.Security;
 
+// Keys for field encryption and the identifier HMAC (dev config here; a KMS/secrets manager in production).
 public sealed class SecurityOptions
 {
     public const string Section = "Security";
@@ -43,6 +44,7 @@ public sealed class FieldProtector
         _keyId = options.Value.KeyId;
     }
 
+    // Encrypts plaintext into [keyId][nonce][tag][ciphertext].
     public byte[] Protect(string plaintext)
     {
         var plain = Encoding.UTF8.GetBytes(plaintext);
@@ -55,6 +57,7 @@ public sealed class FieldProtector
         return output;
     }
 
+    // Reverses Protect; throws if the key id or the payload is wrong.
     public string Unprotect(byte[] payload)
     {
         if (payload.Length < 29 || payload[0] != _keyId)
@@ -71,6 +74,7 @@ public sealed class IdentifierHasher(IOptions<SecurityOptions> options)
 {
     private readonly byte[] _key = Convert.FromBase64String(options.Value.IdentifierHmacKey);
 
+    // Normalises the identifier (alphanumerics only, upper-cased) then HMACs it.
     public string Hash(string identifier)
     {
         var normalised = new string(identifier.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();

@@ -15,7 +15,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Api.Endpoints;
 
-// Customer device API. Auth is the session-bound token.
+// Customer-device API the applicant's phone/browser calls; the session-bound token identifies the session.
 public static partial class ClientEndpoints
 {
     private static readonly HashSet<string> AllowedContentTypes = ["image/jpeg", "image/png"];
@@ -44,6 +44,7 @@ public static partial class ClientEndpoints
             .WithSummary("Exchange a QR handoff token for a device token on the second device");
     }
 
+    // Current status + the next action the device UI should take; the device polls this.
     private static async Task<IResult> GetSession(ClaimsPrincipal user, KycDbContext db, TimeProvider clock,
         CancellationToken ct)
     {
@@ -51,6 +52,7 @@ public static partial class ClientEndpoints
         return Results.Ok(session.ToClientView(clock.GetUtcNow()));
     }
 
+    // Issues a single-use QR link to continue on another device; revokes any earlier unredeemed QR.
     private static async Task<IResult> CreateHandoff(ClaimsPrincipal user, KycDbContext db, TimeProvider clock,
         KycMetrics metrics, IOptions<KycApiOptions> options, CancellationToken ct)
     {
@@ -79,6 +81,7 @@ public static partial class ClientEndpoints
         return Results.Ok(new CreateHandoffResponse(url, handoff.ExpiresAt));
     }
 
+    // Second device swaps the QR token for its own session token; single-use, one generic error for bad/used/expired.
     private static async Task<IResult> RedeemHandoff(RedeemHandoffRequest request, KycDbContext db,
         RequestContext requestContext, TimeProvider clock, KycMetrics metrics, ILoggerFactory loggers,
         CancellationToken ct)
@@ -143,6 +146,7 @@ public static partial class ClientEndpoints
         return Results.Ok(new RedeemHandoffResponse(token, accessToken.ExpiresAt, session.ToClientView(now)));
     }
 
+    // Upload step 1: declare the file (type, size, SHA-256), get a short-lived pre-signed PUT URL; bytes go straight to storage.
     private static async Task<IResult> CreateUpload(CreateUploadRequest request, ClaimsPrincipal user,
         KycDbContext db, IObjectStorage storage, IOptions<StorageOptions> storageOptions, TimeProvider clock,
         CancellationToken ct)
@@ -173,6 +177,7 @@ public static partial class ClientEndpoints
             now.Add(ttl)));
     }
 
+    // Upload step 2: confirm the bytes landed and match, seal them, advance the session, queue the first check.
     private static async Task<IResult> CompleteUpload(Guid uploadedFileId, ClaimsPrincipal user, KycDbContext db,
         IObjectStorage storage, RequestContext requestContext, TimeProvider clock, KycMetrics metrics,
         ILoggerFactory loggers, CancellationToken ct)

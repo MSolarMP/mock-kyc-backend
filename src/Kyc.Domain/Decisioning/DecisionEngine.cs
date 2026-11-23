@@ -10,6 +10,7 @@ public sealed record RiskSignals(
     int SelfieReusedInOtherSessions,
     bool DocumentExpired);
 
+// Everything the engine needs for one decision: the three checks plus cross-session signals.
 public sealed record DecisionInput(
     CheckSummary? Document,
     CheckSummary? Liveness,
@@ -37,6 +38,7 @@ public sealed class DecisionEngine(DecisionPolicy policy)
 {
     public DecisionPolicy Policy { get; } = policy;
 
+    // Runs the rules over the checks and signals, returning the outcome, its reason codes and a risk score.
     public DecisionResult Decide(DecisionInput input)
     {
         var reject = new List<string>();
@@ -123,6 +125,7 @@ public sealed class DecisionEngine(DecisionPolicy policy)
     }
 }
 
+// Stable reason-code strings attached to checks and decisions.
 public static class ReasonCodes
 {
     public const string AllChecksPassed = "ALL_CHECKS_PASSED";

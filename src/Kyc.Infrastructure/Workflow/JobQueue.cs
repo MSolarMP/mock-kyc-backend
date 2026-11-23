@@ -5,9 +5,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Kyc.Infrastructure.Workflow;
 
+// Job payload naming the uploaded file to process.
 public sealed record UploadedFileJobPayload(Guid UploadedFileId);
 public sealed record EmptyPayload;
 
+// Enqueue/claim helpers for the Postgres-backed job queue (the transactional outbox).
 public static class JobQueue
 {
     // Only tracked here. It commits with the state change that caused it (transactional outbox).

@@ -124,10 +124,10 @@ sequenceDiagram
     M->>API: POST /handoff/redeem {token}
     Note over API: atomic UPDATE … WHERE redeemed_at IS NULL<br/>→ exactly one device wins
     API-->>M: new clientToken bound to this device
-    M->>API: POST /client/session/artifacts {type, size, sha256}
+    M->>API: POST /client/session/uploads {type, size, sha256}
     API-->>M: pre-signed PUT URL (content-type bound, 5 min)
     M->>S3: PUT image bytes
-    M->>API: POST /artifacts/{id}/complete
+    M->>API: POST /uploads/{id}/complete
     Note over API: HEAD object: size/type match<br/>seal bytes to a key the client can't overwrite<br/>one TX: status + audit + job
     API-->>M: 202 Accepted
     W->>DB: claim job (SKIP LOCKED, lease)
@@ -148,7 +148,7 @@ and every upload records which device token made it.
 
 ```mermaid
 erDiagram
-    verification_sessions ||--o{ artifacts : has
+    verification_sessions ||--o{ uploaded_files : has
     verification_sessions ||--o{ provider_checks : has
     verification_sessions ||--o{ decisions : has
     verification_sessions ||--o{ session_access_tokens : "device tokens"
@@ -161,10 +161,10 @@ erDiagram
 - **verification_sessions**: aggregate root: status, attempt counters, expiry, `xmin` optimistic concurrency,
   `(client_id, idempotency_key)` unique, fraud signals (`created_ip`, `device_fingerprint`,
   `document_number_hash`), and `extracted_identity_encrypted` (AES-256-GCM, key id prefix for rotation).
-- **artifacts**: metadata only (storage key with no PII, declared sha256, integrity flag, uploading token). Status
+- **uploaded_files**: metadata only (storage key with no PII, declared sha256, integrity flag, uploading token). Status
   `PendingUpload → Uploaded → Purged`.
 - **provider_checks**: one row per vendor result: provider name, vendor reference, normalised outcome/score,
-  reason codes, attempt, latency. A unique `(artifact_id, type)` index backs up handler idempotency.
+  reason codes, attempt, latency. A unique `(uploaded_file_id, type)` index backs up handler idempotency.
 - **decisions**: an append-style history. A system `ManualReview` followed by a reviewer `Approved` shows **whether
   and how a human stepped in**. It stores `rules_version` and `risk_score` so decisions can be replayed.
 - **audit_events**: append-only (a DB trigger blocks UPDATE/DELETE/TRUNCATE), with actor type/id,
@@ -191,7 +191,7 @@ Ids are UUIDv7 (time-ordered, so index inserts stay local). Enums are stored as 
   `ImageRetentionDays` after the decision by the maintenance job (an S3 lifecycle rule is the backstop). Decision
   and audit records are kept for the FICA retention period (5 years).
 - **Least exposure**: customers get no reason codes or scores (they would coach fraudsters). Reviewers see a
-  masked document number and **short-lived** image links, and every case opened is audited (`artifact.viewed_by_reviewer`).
+  masked document number and **short-lived** image links, and every case opened is audited (`upload.viewed_by_reviewer`).
 - **Uploads**: pre-signed URLs are bound to key + content type and expire in 5 minutes. Size and type are checked
   on confirmation, which then **seals** the object under a key the client can't overwrite, and the bytes are
   **re-hashed** before each vendor step.

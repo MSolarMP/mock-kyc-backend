@@ -4,6 +4,7 @@ using Kyc.Infrastructure.Security;
 
 namespace Kyc.Api.Endpoints;
 
+// Issues a session's device access token: the plaintext is returned once, only the hash is stored.
 internal static class AccessTokens
 {
     // Returns the plaintext token once. Only the hash is stored.

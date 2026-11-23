@@ -54,6 +54,7 @@ public static partial class ReviewEndpoints
 
     private static string ReviewerId(HttpContext http) => (string)http.Items[ReviewerHeader]!;
 
+    // Sessions waiting for manual review, oldest first.
     private static async Task<IResult> GetQueue(ClaimsPrincipal user, KycDbContext db, int? limit, CancellationToken ct)
     {
         var take = Math.Clamp(limit ?? 50, 1, 200);
@@ -74,6 +75,7 @@ public static partial class ReviewEndpoints
             r.Decision?.ReasonCodes ?? [], r.Decision?.RiskScore, r.UpdatedAt)));
     }
 
+    // Opens a review case: checks, extracted identity, short-lived image links, and related sessions.
     private static async Task<IResult> GetCase(Guid sessionId, ClaimsPrincipal user, KycDbContext db,
         FieldProtector protector, IObjectStorage storage, IOptions<StorageOptions> storageOptions,
         TimeProvider clock, CancellationToken ct)
@@ -114,6 +116,7 @@ public static partial class ReviewEndpoints
         return Results.Ok(new ReviewCaseView(session.ToView(now), identity, images, related));
     }
 
+    // Records the reviewer's approve/reject decision on a session in manual review.
     private static async Task<IResult> Decide(Guid sessionId, ReviewDecisionRequest request, ClaimsPrincipal user,
         HttpContext http, KycDbContext db, TimeProvider clock, KycMetrics metrics, CancellationToken ct)
     {
@@ -137,6 +140,7 @@ public static partial class ReviewEndpoints
         return Results.Ok(session.ToView(now));
     }
 
+    // Masks all but the last 4 characters of a value.
     private static string Mask(string value) =>
         value.Length <= 4 ? new string('*', value.Length) : new string('*', value.Length - 4) + value[^4..];
 }

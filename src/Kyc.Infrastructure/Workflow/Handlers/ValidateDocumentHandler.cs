@@ -14,6 +14,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Infrastructure.Workflow.Handlers;
 
+// Runs the document-validation vendor check, stores the extracted identity, then advances, recaptures, or decides.
 public sealed class ValidateDocumentHandler(
     IDocumentVerificationProvider provider,
     FieldProtector protector,

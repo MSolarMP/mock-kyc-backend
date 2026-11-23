@@ -52,6 +52,7 @@ public class VerificationSession
 
     public IReadOnlyList<SessionEvent> PendingEvents => _pendingEvents;
 
+    // Starts a new session in Created (awaiting the ID document) and records session.created.
     public static VerificationSession Create(
         string partnerId,
         string applicantReference,
@@ -93,12 +94,14 @@ public class VerificationSession
     public bool HasLapsed(DateTimeOffset now) =>
         SessionStateMachine.IsAwaitingCustomer(Status) && now >= ExpiresAt;
 
+    // Throws SessionExpiredException if the session has expired; guards every customer action.
     public void EnsureUsableByCustomer(DateTimeOffset now)
     {
         if (Status == SessionStatus.Expired || HasLapsed(now))
             throw new SessionExpiredException();
     }
 
+    // Moves the session to a new status if the state machine allows it, and records the change.
     public void TransitionTo(SessionStatus target, DateTimeOffset now, string reason)
     {
         if (!SessionStateMachine.CanTransition(Status, target))
@@ -113,6 +116,7 @@ public class VerificationSession
         Record(AuditEventTypes.StatusChanged, new { from = from.ToString(), to = target.ToString(), reason });
     }
 
+    // Counts the attempt and moves the session to DocumentSubmitted/SelfieSubmitted once an upload is confirmed.
     public void SubmitUploadedFile(UploadedFile uploadedFile, DateTimeOffset now)
     {
         switch (uploadedFile.Type)
@@ -132,6 +136,7 @@ public class VerificationSession
         }
     }
 
+    // Which upload the session is waiting for right now (document, selfie, or none).
     public UploadedFileType? ExpectedUploadType => Status switch
     {
         SessionStatus.Created => UploadedFileType.IdentityDocument,
@@ -139,6 +144,7 @@ public class VerificationSession
         _ => null,
     };
 
+    // Registers an upload the customer is about to make; supersedes any unfinished one of the same type.
     public UploadedFile AddUploadedFile(UploadedFileType type, string contentType, long sizeBytes, string sha256,
         Guid uploadedByTokenId, DateTimeOffset now)
     {
@@ -163,12 +169,14 @@ public class VerificationSession
         return uploadedFile;
     }
 
+    // Stores the document-number HMAC and the encrypted identity pulled from the document check.
     public void RecordExtractedIdentity(string documentNumberHash, byte[] encryptedIdentity)
     {
         DocumentNumberHash = documentNumberHash;
         ExtractedIdentityEncrypted = encryptedIdentity;
     }
 
+    // Records a decision (automated or reviewer) and moves the session to Approved/Rejected/ManualReview.
     public void ApplyDecision(Decision decision, DateTimeOffset now)
     {
         Decisions.Add(decision);
@@ -191,6 +199,7 @@ public class VerificationSession
         TransitionTo(target, now, $"decision:{decision.Outcome}");
     }
 
+    // Queues a domain event to be written as an audit row in the next SaveChanges.
     public void Record(string eventType, object? data = null) =>
         _pendingEvents.Add(new SessionEvent(Id, eventType, data));
 

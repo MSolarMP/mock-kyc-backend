@@ -23,7 +23,7 @@ public static class NextActions
 }
 
 // Maps a session to the partner view and the (reduced) customer view.
-public static class Mapping
+public static class SessionViewMapping
 {
     public static SessionView ToView(this VerificationSession s, DateTimeOffset now) => new(
         s.Id, s.ApplicantReference, s.Channel, s.Status, NextActions.For(s, now),

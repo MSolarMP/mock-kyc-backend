@@ -1,6 +1,6 @@
 namespace Kyc.Domain;
 
-// Reports and fraud tooling query these names, so don't rename them.
+// The event_type strings written to the append-only audit_events table.
 public static class AuditEventTypes
 {
     public const string SessionCreated = "session.created";

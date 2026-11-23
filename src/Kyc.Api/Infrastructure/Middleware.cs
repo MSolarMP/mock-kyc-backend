@@ -69,6 +69,7 @@ public sealed class ProblemExceptionHandler(IProblemDetailsService problems, ILo
     }
 }
 
+// Builds validation problem+json responses with a stable code.
 public static class Problems
 {
     public static IResult Validation(params (string Field, string Error)[] errors) =>

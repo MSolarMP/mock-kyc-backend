@@ -11,7 +11,7 @@ public sealed class VendorAAdapter(IVendorAClient client)
 
     public async Task<DocumentResult> VerifyAsync(ProviderRequest request, CancellationToken ct)
     {
-        var report = await Call(() => client.CreateDocumentReportAsync(
+        var report = await MapVendorErrors(() => client.CreateDocumentReportAsync(
             new VendorAImage(request.ImageUrl, request.StorageKey), request.IdempotencyKey, request.Attempt, ct));
         return new DocumentResult(MapOutcome(report.Result), MapScore(report.Score), MapReasons(report.Breakdown),
             report.Id, MapIdentity(report.Properties));
@@ -19,14 +19,14 @@ public sealed class VendorAAdapter(IVendorAClient client)
 
     public async Task<ProviderResult> CheckAsync(ProviderRequest request, CancellationToken ct)
     {
-        var report = await Call(() => client.CreateLivenessReportAsync(
+        var report = await MapVendorErrors(() => client.CreateLivenessReportAsync(
             new VendorAImage(request.ImageUrl, request.StorageKey), request.IdempotencyKey, request.Attempt, ct));
         return ToResult(report);
     }
 
     public async Task<ProviderResult> MatchAsync(FaceMatchRequest request, CancellationToken ct)
     {
-        var report = await Call(() => client.CreateFaceSimilarityReportAsync(
+        var report = await MapVendorErrors(() => client.CreateFaceSimilarityReportAsync(
             new VendorAImage(request.SelfieUrl, request.SelfieStorageKey),
             new VendorAImage(request.DocumentUrl, request.DocumentStorageKey),
             request.IdempotencyKey, request.Attempt, ct));
@@ -73,8 +73,8 @@ public sealed class VendorAAdapter(IVendorAClient client)
     private static ProviderResult ToResult(VendorAReport r) =>
         new(MapOutcome(r.Result), MapScore(r.Score), MapReasons(r.Breakdown), r.Id);
 
-    // 408/429/5xx are transient and retried. Other 4xx are permanent.
-    public static async Task<VendorAReport> Call(Func<Task<VendorAReport>> call)
+    // Runs a vendor call and maps its errors: 408/429/5xx become Transient (retried), other 4xx become Permanent.
+    public static async Task<VendorAReport> MapVendorErrors(Func<Task<VendorAReport>> call)
     {
         try
         {

@@ -84,7 +84,7 @@ flowchart TB
 | **`src/Kyc.Domain`** | |
 | `VerificationSession.cs` | The aggregate. Every status change and audit event goes through it. |
 | `SessionStateMachine.cs` | The table of allowed status changes. |
-| `Artifact.cs`, `ProviderCheck.cs`, `Decision.cs`, `HandoffToken.cs`, `SessionAccessToken.cs`, `AuditEvent.cs`, `WorkflowJob.cs` | The data entities, one per file. |
+| `UploadedFile.cs`, `ProviderCheck.cs`, `Decision.cs`, `HandoffToken.cs`, `SessionAccessToken.cs`, `AuditEvent.cs`, `WorkflowJob.cs` | The data entities, one per file. |
 | `Partner.cs` | Tenants and their hashed API keys. |
 | `Decisioning/DecisionEngine.cs` | Pure function: check results + risk signals → outcome. Also `ReasonCodes`. |
 | `Workflow/WorkflowRules.cs` | After a check, what next (continue / recapture / decide), and retry backoff. |
@@ -226,7 +226,7 @@ flowchart LR
 | `NotFoundException` | 404 | `not_found` |
 | `SessionExpiredException` | 410 | `session_expired` |
 | `InvalidStateTransitionException` | 409 | `invalid_state_transition` |
-| `SessionStateConflictException` | 409 | `unexpected_artifact`, `attempts_exhausted`, `not_in_review` |
+| `SessionStateConflictException` | 409 | `unexpected_upload`, `attempts_exhausted`, `not_in_review` |
 | `DbUpdateConcurrencyException` | 409 | `concurrent_modification` |
 | `BusinessRuleException` | 422 | `idempotency_key_reused`, `handoff_invalid`, `upload_not_found` |
 | validation (`Problems.Validation`) | 400 | `validation_failed` |
@@ -283,7 +283,7 @@ Needs `X-Api-Key` and an `Idempotency-Key` header. Body: `applicantReference`, `
 
 #### `GET /v1/verification-sessions/{id}`: full view
 
-Loads the session with artifacts, checks and decisions (`LoadVisibleSession`) and maps it with `ToView`. This is the
+Loads the session with uploaded files, checks and decisions (`LoadVisibleSession`) and maps it with `ToView`. This is the
 partner's view, so **reason codes, scores and vendor references are included**.
 
 #### `GET /v1/verification-sessions/{id}/events?after=&limit=`: audit trail
@@ -330,31 +330,31 @@ Anonymous and rate-limited per IP. Body: `token`, optional `deviceFingerprint`.
 4. Return the phone's `clientToken` and the current session view. **Both devices stay valid**, so the desktop can
    keep showing progress.
 
-#### `POST /v1/client/session/artifacts`: ask to upload
+#### `POST /v1/client/session/uploads`: ask to upload
 
 Body: `type` (`IdentityDocument` or `Selfie`), `contentType` (jpeg/png), `sizeBytes` (max 10 MB), `sha256`.
 
 1. Validate.
-2. `session.AddArtifact(...)` checks this upload is expected now. A document is only accepted in `Created` and a
-   selfie only in `AwaitingSelfie`; otherwise you get 409 `unexpected_artifact`. Older unfinished uploads of the same
-   type are marked `Superseded`. Records `artifact.upload_requested`.
+2. `session.AddUploadedFile(...)` checks this upload is expected now. A document is only accepted in `Created` and a
+   selfie only in `AwaitingSelfie`; otherwise you get 409 `unexpected_upload`. Older unfinished uploads of the same
+   type are marked `Superseded`. Records `upload.requested`.
 3. Save, then `CreateUploadUrlAsync` makes a **pre-signed PUT URL** (5 min). The content type is part of the
    signature, so the client can't upload a different type.
-4. Return `artifactId`, `uploadUrl`, `method: PUT` and the headers to send.
+4. Return `uploadedFileId`, `uploadUrl`, `method: PUT` and the headers to send.
 
 The device then **PUTs the bytes straight to S3**. The API never handles image bytes.
 
-#### `POST /v1/client/session/artifacts/{id}/complete`: "I've uploaded it"
+#### `POST /v1/client/session/uploads/{id}/complete`: "I've uploaded it"
 
 This is where the workflow starts.
 
-1. Find the artifact in this session. If it's already `Uploaded`, return 202 again (safe to retry).
+1. Find the uploaded file in this session. If it's already `Uploaded`, return 202 again (safe to retry).
 2. `GetMetadataAsync` asks S3 whether the object exists and checks the size and content type. If not:
    422 `upload_not_found` / `upload_size_mismatch` / `upload_type_mismatch`.
 3. **Seal the bytes**: `CopyAsync` copies the object to a key the client was never given an upload URL for,
-   `artifact.MarkUploaded` points the artifact at that sealed key, and the original upload key is dropped. Record
-   `artifact.uploaded`.
-4. `session.SubmitArtifact` increments the attempt counter (max 3 each; 409 `attempts_exhausted` after that) and
+   `uploaded file.MarkUploaded` points the uploaded file at that sealed key, and the original upload key is dropped. Record
+   `upload.completed`.
+4. `session.SubmitUploadedFile` increments the attempt counter (max 3 each; 409 `attempts_exhausted` after that) and
    moves `Created → DocumentSubmitted` or `AwaitingSelfie → SelfieSubmitted`.
 5. **Enqueue a job**: `ValidateDocument` for a document, `CheckLiveness` for a selfie.
 6. `SaveChangesAsync`: **status change + audit rows + job in one transaction**. If the process dies before the
@@ -376,7 +376,7 @@ The partner's sessions in `ManualReview`, oldest first, with the latest decision
    (`********0101`).
 2. Make **2-minute pre-signed GET links** for the uploaded images.
 3. Find **related sessions** with the same document number hash (same person, other attempts).
-4. Record `artifact.viewed_by_reviewer`. Looking at personal data is itself audited.
+4. Record `upload.viewed_by_reviewer`. Looking at personal data is itself audited.
 
 #### `POST /v1/reviews/{id}/decision`
 
@@ -402,7 +402,7 @@ Body: `outcome` (`Approved` or `Rejected`), `reasonCode`, `notes`.
 
 ### 7.1 The queue is a table
 
-`workflow_jobs` columns that matter: `type`, `payload` (JSON, e.g. the artifact id), `status`
+`workflow_jobs` columns that matter: `type`, `payload` (JSON, e.g. the uploaded file id), `status`
 (`Pending → Running → Completed | DeadLettered`), `attempts`/`max_attempts` (5), `run_after`, `locked_by`,
 `locked_until`, `last_error`, `correlation_id`.
 
@@ -433,7 +433,7 @@ Key points:
   **expired** (their worker died). That's how a crash recovers on its own.
 - **At-least-once delivery**: a job can run twice (e.g. a worker dies after the vendor call but before commit). So
   every handler starts with an **idempotency guard**: "is the session still in the status I expect, and is there no
-  check for this artifact yet?" If not, it logs and returns.
+  check for this uploaded file yet?" If not, it logs and returns.
 - **Retry vs give up** is decided by the exception type (section 8): `TransientProviderException` retries with
   backoff; `PermanentProviderException` gives up at once. A `DbUpdateConcurrencyException` (someone changed the
   session meanwhile) retries after 200 ms.
@@ -461,10 +461,10 @@ flowchart LR
 
 **`ValidateDocumentHandler`**
 
-1. Guard: session must be `DocumentSubmitted` and have no document check for this artifact yet.
+1. Guard: session must be `DocumentSubmitted` and have no document check for this uploaded file yet.
 2. `VerifyIntegrityAsync` (in `HandlerBase`) re-downloads the bytes and compares SHA-256 with what the client
    declared. A mismatch is recorded as an `Unreadable` check from provider `platform` with
-   `ARTIFACT_INTEGRITY_MISMATCH`, and the vendor is never called.
+   `UPLOAD_INTEGRITY_MISMATCH`, and the vendor is never called.
 3. Call `IDocumentVerificationProvider.VerifyAsync` with a 2-minute download URL. The job id is the vendor
    idempotency key, so retries don't double-bill.
 4. `RecordCheck` saves a `ProviderCheck` and records `check.completed`.
@@ -642,7 +642,7 @@ Event data holds ids, codes and hashes only, never raw personal data.
   (`customer_inactive`). If a customer acted at the same moment, the row version check fails and the next sweep
   retries.
 - **Purge images**: for each partner, completed sessions older than that partner's `ImageRetentionDays` (30 for
-  demo-bank). Deletes the S3 objects, marks artifacts `Purged` and records `artifact.purged`. Decisions and audit rows
+  demo-bank). Deletes the S3 objects, marks uploaded files `Purged` and records `upload.purged`. Decisions and audit rows
   are kept.
 
 Expiry is also checked **lazily** on every customer request (`HasLapsed`), so a session never looks alive between
@@ -656,14 +656,14 @@ sweeps.
 erDiagram
     partners ||--o{ partner_api_keys : has
     partners ||--o{ verification_sessions : owns
-    verification_sessions ||--o{ artifacts : "document + selfie uploads"
+    verification_sessions ||--o{ uploaded_files : "document + selfie uploads"
     verification_sessions ||--o{ provider_checks : "vendor results"
     verification_sessions ||--o{ decisions : "system, then reviewer"
     verification_sessions ||--o{ session_access_tokens : "one per device"
     verification_sessions ||--o{ handoff_tokens : "QR codes"
     verification_sessions ||--o{ audit_events : "append-only"
     verification_sessions ||--o{ workflow_jobs : "queue"
-    artifacts ||--o{ provider_checks : "checked by"
+    uploaded_files ||--o{ provider_checks : "checked by"
 ```
 
 Indexes worth knowing about (`KycDbContext.OnModelCreating`):
@@ -673,8 +673,8 @@ Indexes worth knowing about (`KycDbContext.OnModelCreating`):
 - **Fraud lookups**:
   - `document_number_hash` (partial, only where it isn't null);
   - `(created_ip, created_at)`;
-  - artifact `declared_sha256`.
-- **One check per artifact per type**: unique `(artifact_id, type)` on `provider_checks`. This is a second guard
+  - uploaded file `declared_sha256`.
+- **One check per uploaded file per type**: unique `(uploaded_file_id, type)` on `provider_checks`. This is a second guard
   against a duplicate job writing twice.
 - **Queue**: partial index on `run_after` where status is `Pending` or `Running`.
 - **Concurrency**: `verification_sessions` uses Postgres `xmin` as a row version.
@@ -709,10 +709,10 @@ sequenceDiagram
     M->>API: POST /handoff/redeem {token}
     API->>DB: atomic redeem, new phone token, handoff.redeemed
     API-->>M: phone clientToken
-    M->>API: POST /client/session/artifacts (IdentityDocument, sha256)
+    M->>API: POST /client/session/uploads (IdentityDocument, sha256)
     API-->>M: pre-signed PUT URL
     M->>S3: PUT document bytes
-    M->>API: POST /artifacts/{id}/complete
+    M->>API: POST /uploads/{id}/complete
     API->>S3: HEAD object (size, type)
     API->>DB: Created→DocumentSubmitted + job ValidateDocument (one tx)
     API-->>M: 202 nextAction WAIT
@@ -724,7 +724,7 @@ sequenceDiagram
     M->>API: GET /client/session (polling)
     API-->>M: nextAction UPLOAD_SELFIE
     M->>S3: (same upload dance for the selfie)
-    M->>API: POST /artifacts/{id}/complete
+    M->>API: POST /uploads/{id}/complete
     API->>DB: AwaitingSelfie→SelfieSubmitted + job CheckLiveness
     W->>V: liveness report → clear
     W->>DB: check + job MatchFace
@@ -737,8 +737,8 @@ sequenceDiagram
     API-->>P: checks, scores, decision ALL_CHECKS_PASSED
 ```
 
-Audit trail you'll see: `session.created`, `handoff.issued`, `handoff.redeemed`, `artifact.upload_requested`,
-`artifact.uploaded`, `session.status_changed` (→ DocumentSubmitted), `check.completed` (document),
+Audit trail you'll see: `session.created`, `handoff.issued`, `handoff.redeemed`, `upload.requested`,
+`upload.completed`, `session.status_changed` (→ DocumentSubmitted), `check.completed` (document),
 `session.status_changed` (→ AwaitingSelfie), the same three for the selfie, `check.completed` (liveness),
 `check.completed` (face), `session.status_changed` (→ PendingDecision), `risk.assessed`, `decision.made`,
 `session.status_changed` (→ Approved). The jobs started by an upload carry that upload request's correlation id.
@@ -756,7 +756,7 @@ Audit trail you'll see: `session.created`, `handoff.issued`, `handoff.redeemed`,
 - `ValidateDocument`: `unidentified` → **Unreadable**, attempts used 1 of 3 → `RequestRecapture`.
 - Status goes **back to Created** and `session.recapture_requested` is recorded. The client view shows
   `nextAction: UPLOAD_DOCUMENT`, `recaptureRequested: true`, 2 attempts left.
-- The phone uploads again (the old artifact stays, the new one gets its own check), the second check passes and the
+- The phone uploads again (the old uploaded file stays, the new one gets its own check), the second check passes and the
   flow continues → **Approved**.
 - After the 3rd unreadable image, `RequestRecapture` is no longer allowed, so it goes to the decision →
   **ManualReview** `DOCUMENT_UNREADABLE`.
@@ -782,7 +782,7 @@ The vendor says `clear`, so the check is Passed and the flow runs to the end. In
 - `MatchFace`: `consider`, 72 → Inconclusive, score 0.72. That's between 0.60 and 0.85 → review
   `FACE_MATCH_LOW_CONFIDENCE` → **ManualReview**. The customer sees `WAIT`.
 - The reviewer calls `GET /v1/reviews` (it's in the queue), then `GET /v1/reviews/{id}` (masked identity, image
-  links, related sessions; `artifact.viewed_by_reviewer`), then `POST .../decision` `Approved`.
+  links, related sessions; `upload.viewed_by_reviewer`), then `POST .../decision` `Approved`.
 - There are now **two** decisions: the system's `ManualReview` and the reviewer's `Approved` (with `reviewerId`).
   Final status **Approved**.
 
@@ -823,11 +823,11 @@ HTTP 401 → `PermanentProviderException` → **no retries**: dead-lettered on a
 
 The client declares hash A but uploads bytes with hash B. `complete` only checks size and type, so it passes.
 `VerifyIntegrityAsync` in the worker catches it and records an Unreadable check from `platform` with
-`ARTIFACT_INTEGRITY_MISMATCH` plus `artifact.integrity_failed`. **The vendor never sees the file.** This counts as
+`UPLOAD_INTEGRITY_MISMATCH` plus `upload.integrity_failed`. **The vendor never sees the file.** This counts as
 unreadable, so the customer is asked to recapture.
 
 `complete` also **seals** the bytes: it copies the object to a key the client was never given an upload URL for and
-points the artifact at it, so a later overwrite of the upload URL can't change what a vendor or reviewer reads.
+points the uploaded file at it, so a later overwrite of the upload URL can't change what a vendor or reviewer reads.
 `VerifyIntegrityAsync` runs before every vendor step — document, liveness and face match — not just once.
 
 ### 14.13 Customer walks away
@@ -847,12 +847,12 @@ Nobody uploads for 24 h. `GET /client/session` already shows `EXPIRED` (lazy che
 | Desktop makes a new QR | Older unredeemed tokens revoked | Old QR gives `handoff_invalid` |
 | Desktop and phone change the session at once | `xmin` row version | Second write gets 409 `concurrent_modification` |
 | Two reviewers decide at once | `xmin` row version | Second gets 409 |
-| Retried `complete` (double tap) | Artifact already `Uploaded` → same 202 | No duplicate job |
+| Retried `complete` (double tap) | UploadedFile already `Uploaded` → same 202 | No duplicate job |
 | Worker dies mid-job | Lease expires after 60 s; job is claimable again | Runs again; handler guard skips it if already done |
-| Job runs twice anyway | Handler guards + unique `(artifact_id, type)` on checks | No duplicate check |
+| Job runs twice anyway | Handler guards + unique `(uploaded_file_id, type)` on checks | No duplicate check |
 | Worker and customer race (worker changes status) | `xmin` on the session | Worker retries in 200 ms |
-| Selfie uploaded before the document | `ExpectedArtifact` check | 409 `unexpected_artifact` |
-| Upload after 3 attempts are used | Session has already moved on to the decision | 409 `unexpected_artifact` (`attempts_exhausted` is a backstop) |
+| Selfie uploaded before the document | `ExpectedUploadType` check | 409 `unexpected_upload` |
+| Upload after 3 attempts are used | Session has already moved on to the decision | 409 `unexpected_upload` (`attempts_exhausted` is a backstop) |
 | Another partner's session id | `LoadVisibleSession` | 404 |
 
 ---
@@ -881,7 +881,7 @@ SELECT type, provider, outcome, score, reason_codes, attempt, duration_ms FROM p
 - **Customer sees `WAIT` forever**: the status is probably `ManualReview`. Check `GET /v1/reviews`.
 - **Upload fails with `upload_not_found`**: the PUT went to the wrong host or failed. Pre-signed URLs are signed for
   `Storage:PublicServiceUrl` and the host is part of the signature.
-- **Step through it**: in Visual Studio, put breakpoints in `ClientEndpoints.CompleteArtifact`,
+- **Step through it**: in Visual Studio, put breakpoints in `ClientEndpoints.CompleteUpload`,
   `ValidateDocumentHandler.HandleAsync` and `DecisionEngine.Decide`, then run `.\scripts\demo.ps1`. One process runs
   both roles, so you can follow a session from HTTP call to decision.
 
@@ -896,7 +896,7 @@ example. NestJS/TypeScript comparisons are given where they help.
 
 | Kind | Can you `new` it? | Can it be inherited? | Holds state? | Used here for | Count |
 |---|---|---|---|---|---|
-| `class` | yes | yes | yes | Entities (`VerificationSession`, `Artifact`, ...), `KycDbContext` | 11 |
+| `class` | yes | yes | yes | Entities (`VerificationSession`, `UploadedFile`, ...), `KycDbContext` | 11 |
 | `sealed class` | yes | **no** | yes | Services: handlers, storage, crypto, auth handlers, middleware, options | 40 |
 | `abstract class` | **no** | **must** be | yes | Shared base: `HandlerBase`, `DomainException` | 2 |
 | `static class` | **no** | no | no | Pure functions, constants, extension methods | 21 |
@@ -913,7 +913,7 @@ Modifiers you'll see on top of these:
 
 **Where:**
 - `VerificationSession` (`VerificationSession.cs`);
-- `Artifact`, `ProviderCheck`, `Decision`, `HandoffToken`, `SessionAccessToken`, `AuditEvent`, `WorkflowJob` (one file per entity);
+- `UploadedFile`, `ProviderCheck`, `Decision`, `HandoffToken`, `SessionAccessToken`, `AuditEvent`, `WorkflowJob` (one file per entity);
 - `Partner`, `PartnerApiKey` (`Partner.cs`);
 - `KycDbContext`.
 
@@ -939,7 +939,7 @@ public class VerificationSession
    anywhere outside the class.
 3. **A static factory method** is the only way to create one, so a new session always starts valid (status
    `Created`, expiry set, `session.created` recorded).
-4. **Behaviour methods** (`TransitionTo`, `AddArtifact`, `ApplyDecision`) change state *and* check the rules in
+4. **Behaviour methods** (`TransitionTo`, `AddUploadedFile`, `ApplyDecision`) change state *and* check the rules in
    one place.
 
 In NestJS terms: a TypeORM entity with all its business logic moved onto it, instead of fields set from a service.
@@ -1027,7 +1027,7 @@ between calls**. The repo uses them for three things:
 - `NextActions`, `VendorAResult`.
 
 **c) Extension methods**, which must live in a static class (see 17.10):
-- `DependencyInjection`, `JobQueue`, `Mapping`;
+- `DependencyInjection`, `JobQueue`, `SessionViewMapping`;
 - `ClaimsPrincipalExtensions`;
 - the endpoint classes (`PartnerEndpoints`, `ClientEndpoints`, `ReviewEndpoints`).
 
@@ -1059,7 +1059,7 @@ That one line gives you:
   `ExtractedIdentity`.
 - **Decision engine** input and output: `DecisionInput`, `RiskSignals`, `DecisionResult`, `DecisionPolicy`.
 - **Vendor A wire format**: `VendorAReport`, `VendorADocumentProperties`.
-- **Small payloads**: `ArtifactJobPayload`, `EmptyPayload`, `SessionEvent`, `ObjectMetadata`.
+- **Small payloads**: `UploadedFileJobPayload`, `EmptyPayload`, `SessionEvent`, `ObjectMetadata`.
 
 Rule of thumb: **has an identity and changes → class. Is just a bundle of values → record.**
 
@@ -1158,7 +1158,7 @@ before `class`. The compiler requires `partial` to come immediately before `clas
 | **Expression-bodied** | `public bool IsTerminal => ...;` | One-liners | `IsTerminal`, `CanTransition`, `Hash` |
 | **`override`** | `protected override Task ExecuteAsync(...)` | Framework calls *your* code | see below |
 | **Interface implementation** | `public Task HandleAsync(...)` | Fulfils a contract | `IJobHandler.HandleAsync`, `VerifyAsync`, `CheckAsync` |
-| **Generic** | `job.ReadPayload<ArtifactJobPayload>()` | Same code, any type | `ReadPayload<T>`, `ExecuteAsync<T>` |
+| **Generic** | `job.ReadPayload<UploadedFileJobPayload>()` | Same code, any type | `ReadPayload<T>`, `ExecuteAsync<T>` |
 | **Local function** | `static async Task InitialiseAsync(...)` at the bottom of `Program.cs` | A helper only `Program.cs` needs | `InitialiseAsync`, `PrintBanner` |
 
 **Why factory methods instead of constructors?**
@@ -1183,7 +1183,7 @@ The repo's extension methods:
 | `services.AddKycInfrastructure(config)`, `services.AddKycWorker()` | `DependencyInjection` | Standard .NET way for a library to register its services |
 | `app.MapPartnerEndpoints()` etc. | endpoint classes | Keeps `Program.cs` short; each file owns its routes |
 | `db.Enqueue(...)`, `db.ClaimAsync(...)` | `JobQueue` | Queue operations without a separate repository class |
-| `session.ToView(now)`, `session.ToClientView(now)` | `Mapping` | Entity → DTO mapping, kept out of the domain |
+| `session.ToView(now)`, `session.ToClientView(now)` | `SessionViewMapping` | Entity → DTO mapping, kept out of the domain |
 | `user.PartnerId()`, `user.SessionId()` | `ClaimsPrincipalExtensions` | Typed access to claims |
 | `pipeline.ExecuteAsync(name, call, ct)` | `ProviderResilience` | Wraps Polly and converts its exceptions |
 
@@ -1217,8 +1217,8 @@ Default to the narrowest level that works: `private` first, widen only when anot
 ### 17.12 How an endpoint method gets its parameters
 
 ```csharp
-private static async Task<IResult> CompleteArtifact(
-    Guid artifactId,                 // from the route: /artifacts/{artifactId:guid}/complete
+private static async Task<IResult> CompleteUpload(
+    Guid uploadedFileId,                 // from the route: /uploads/{uploadedFileId:guid}/complete
     ClaimsPrincipal user,            // the authenticated caller (set by the auth handler)
     KycDbContext db,                 // from DI (scoped: one per request)
     IObjectStorage storage,          // from DI
@@ -1230,7 +1230,7 @@ private static async Task<IResult> CompleteArtifact(
 
 ASP.NET looks at each parameter's type and fills it in:
 - route values by name;
-- a record parameter from the JSON body (e.g. `CreateArtifactRequest`);
+- a record parameter from the JSON body (e.g. `CreateUploadRequest`);
 - `ClaimsPrincipal` and `HttpContext` from the request;
 - everything else from DI.
 
@@ -1246,7 +1246,7 @@ to test expiry without waiting 24 hours.
 | `{ get; private set; }` | Public read, private write | `VerificationSession.Status` |
 | `{ get; set; }` | Fully open | `AuditEvent`, `WorkflowJob`, options classes (simple data written by infrastructure) |
 | `{ get; init; }` | Set only during creation | `DecisionPolicy` |
-| `=> expression` | Computed every time it's read | `IsTerminal`, `ExpectedArtifact`, `PendingEvents` |
+| `=> expression` | Computed every time it's read | `IsTerminal`, `ExpectedUploadType`, `PendingEvents` |
 | `const` | Compile-time constant | `MaxDocumentAttempts = 3`, `Section = "Storage"` |
 | `static readonly` | Created once, never reassigned | `KycDbContext.Json` (shared JSON settings) |
 | `private readonly` field | Set in the constructor, never changed | `FieldProtector._key`, `VerificationSession._pendingEvents` |

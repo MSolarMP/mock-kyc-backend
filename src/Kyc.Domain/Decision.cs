@@ -17,6 +17,7 @@ public class Decision
     public int? RiskScore { get; private set; }
     public DateTimeOffset DecidedAt { get; private set; }
 
+    // A decision made by the rules engine; carries the rules version and risk score.
     public static Decision Automated(Guid sessionId, DecisionOutcome outcome, IEnumerable<string> reasons,
         string rulesVersion, int riskScore, DateTimeOffset now) => new()
         {
@@ -30,6 +31,7 @@ public class Decision
             DecidedAt = now,
         };
 
+    // A reviewer's approve/reject decision; ManualReview isn't a valid reviewer outcome.
     public static Decision Manual(Guid sessionId, DecisionOutcome outcome, string reviewerId, string reasonCode,
         string? notes, DateTimeOffset now)
     {

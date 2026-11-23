@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Kyc.Infrastructure.Persistence;
 
+// Dev/test seed partners and their keys, read from config.
 public sealed class PartnerSeedOptions
 {
     public const string Section = "Partners";

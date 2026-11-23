@@ -4,6 +4,7 @@ using Polly.Timeout;
 
 namespace Kyc.Infrastructure.Providers;
 
+// Timeout and circuit-breaker settings shared by the vendor pipelines.
 public sealed class ProviderResilienceOptions
 {
     public const string Section = "Providers:Resilience";

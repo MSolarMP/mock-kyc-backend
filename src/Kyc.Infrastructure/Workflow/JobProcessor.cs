@@ -13,6 +13,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Infrastructure.Workflow;
 
+// Worker tuning: poll interval, batch size, parallelism, and how long a claimed job is leased.
 public sealed class WorkerOptions
 {
     public const string Section = "Worker";
@@ -22,6 +23,7 @@ public sealed class WorkerOptions
     public int LeaseSeconds { get; set; } = 60;
 }
 
+// One job type's handler: do the work in HandleAsync, or clean up in OnExhaustedAsync when retries run out.
 public interface IJobHandler
 {
     JobType Type { get; }
@@ -44,6 +46,7 @@ public sealed class JobProcessor(
     // Written to locked_by.
     private readonly string _workerId = Truncate($"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}", 128);
 
+    // The poll loop: claim a batch of due jobs, process them in parallel, back off when there's nothing to do.
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var o = options.Value;
@@ -87,6 +90,7 @@ public sealed class JobProcessor(
         }
     }
 
+    // Runs one job's handler and commits the handler's changes and the job completion in a single transaction.
     internal async Task ProcessAsync(WorkflowJob claimed, CancellationToken ct)
     {
         using var activity = KycMetrics.ActivitySource.StartActivity($"job {claimed.Type}", ActivityKind.Consumer);
@@ -135,6 +139,7 @@ public sealed class JobProcessor(
         }
     }
 
+    // Retries with backoff, or dead-letters after max attempts — running the handler's exhaustion path first.
     private async Task HandleFailureAsync(WorkflowJob claimed, Exception error, CancellationToken ct)
     {
         var now = clock.GetUtcNow();
@@ -183,6 +188,7 @@ public sealed class JobProcessor(
         metrics.JobProcessed(claimed.Type.ToString(), "retry_scheduled");
     }
 
+    // Resolves the DbContext and the handler for this job type, and sets the audit actor to this worker.
     private static (KycDbContext Db, IJobHandler Handler) Resolve(IServiceProvider sp, WorkflowJob job)
     {
         var context = (RequestContext)sp.GetRequiredService<IRequestContext>();

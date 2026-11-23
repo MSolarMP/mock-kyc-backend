@@ -53,6 +53,7 @@ public sealed class AssessRiskAndDecideHandler(
         Logger.LogInformation("Session decided {Outcome} ({Reasons})", result.Outcome, string.Join(",", result.ReasonCodes));
     }
 
+    // Collects the cross-session fraud signals: repeat/open docs, IP velocity, reused selfie, expired document.
     private async Task<RiskSignals> GatherSignalsAsync(KycDbContext db, VerificationSession s, DateTimeOffset now,
         CancellationToken ct)
     {
@@ -90,6 +91,7 @@ public sealed class AssessRiskAndDecideHandler(
         return new RiskSignals(priorRejections, openSameDoc, ipCount, selfieReuse, expired);
     }
 
+    // The most recent check of a given type, reduced to what the engine needs.
     private static CheckSummary? Latest(VerificationSession s, CheckType type) =>
         s.Checks.Where(c => c.Type == type)
             .OrderByDescending(c => c.CompletedAt)

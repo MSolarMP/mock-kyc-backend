@@ -21,6 +21,7 @@ public class UploadedFile
     public DateTimeOffset? UploadedAt { get; private set; }
     public DateTimeOffset? PurgedAt { get; private set; }
 
+    // Creates a pending-upload record and its storage key; the bytes aren't in storage yet.
     internal static UploadedFile Create(Guid sessionId, UploadedFileType type, string contentType, long size, string sha256,
         Guid tokenId, DateTimeOffset now)
     {
@@ -61,6 +62,7 @@ public class UploadedFile
     public void MarkIntegrityVerified() => IntegrityVerified = true;
     public void MarkSuperseded() => Status = UploadedFileStatus.Superseded;
 
+    // Marks the file deleted by retention; the metadata row stays for audit.
     public void MarkPurged(DateTimeOffset now)
     {
         Status = UploadedFileStatus.Purged;

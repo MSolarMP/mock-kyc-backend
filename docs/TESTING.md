@@ -54,9 +54,9 @@ the way real vendor sandboxes use magic test images. With no markers, every chec
 Several tests below say *"upload a document"* or *"upload a selfie (markers X)"*. That always means these four steps (Bearer must be set):
 
 1. `.\scripts\test-image.ps1 -Type <IdentityDocument|Selfie> [-Markers X]` and copy the JSON it prints.
-2. **`POST /v1/client/session/artifacts`** with that JSON as the body. Returns **201** with `artifactId` and `uploadUrl`.
+2. **`POST /v1/client/session/uploads`** with that JSON as the body. Returns **201** with `uploadedFileId` and `uploadUrl`.
 3. `.\scripts\test-image.ps1 -Type <same type> -UploadUrl "<uploadUrl>"` (the URL expires after 5 minutes).
-4. **`POST /v1/client/session/artifacts/{artifactId}/complete`**. Returns **202** with `"status": "DocumentSubmitted"` (or `SelfieSubmitted`).
+4. **`POST /v1/client/session/uploads/{uploadedFileId}/complete`**. Returns **202** with `"status": "DocumentSubmitted"` (or `SelfieSubmitted`).
 
 Then **poll `GET /v1/client/session`** until `nextAction` changes. The worker picks the job up in under a second, and
 the mock vendor takes about 300 ms per check, so one or two refreshes is usually enough.
@@ -85,7 +85,7 @@ the mock vendor takes about 300 ms per check, so one or two refreshes is usually
 | 6 | Upload a selfie (no markers) | | `complete` returns **202** `SelfieSubmitted` |
 | 7 | `GET /v1/client/session` (poll) | | `status: Approved`, `nextAction: COMPLETE` |
 | 8 | `GET /v1/verification-sessions/{sessionId}` | `sessionId` from step 1 | **200**. Three checks (`DocumentValidation`, `Liveness`, `FaceMatch`) all `Passed`; one decision `Approved`, `decidedBy: System`, reason `ALL_CHECKS_PASSED` |
-| 9 | `GET /v1/verification-sessions/{sessionId}/events` | | **200**. The full audit trail: `session.created`, `artifact.upload_requested`, `artifact.uploaded`, `check.completed` ×3, `session.status_changed` (several), `risk.assessed`, `decision.made` |
+| 9 | `GET /v1/verification-sessions/{sessionId}/events` | | **200**. The full audit trail: `session.created`, `upload.requested`, `upload.completed`, `check.completed` ×3, `session.status_changed` (several), `risk.assessed`, `decision.made` |
 
 Body for step 1. **Change `ipAddress` every few sessions.** More than 10 sessions from one IP in 24 h triggers the
 `HIGH_IP_VELOCITY` fraud rule, and everything goes to manual review.
@@ -152,7 +152,7 @@ Audit trail: `session.recapture_requested`. Partner view: two `DocumentValidatio
 | 2 | `GET /v1/reviews` | ApiKey + ReviewerId set | **200**, your session is in the queue with `reasonCodes: ["FACE_MATCH_LOW_CONFIDENCE"]` and a `riskScore` |
 | 3 | `GET /v1/reviews/{sessionId}` | | **200**. Checks, the extracted identity (name, date of birth, **masked** document number), short-lived image links (2 min), and related sessions with the same document |
 | 4 | `POST /v1/reviews/{sessionId}/decision` | `{ "outcome": "Approved", "reasonCode": "VERIFIED_MANUALLY", "notes": "Checked against document" }` | **200**, `status: Approved`. A second decision appears with `decidedBy: Reviewer`, `reviewerId: staff-1042` |
-| 5 | `GET /v1/verification-sessions/{sessionId}/events` | | Includes `artifact.viewed_by_reviewer` (opening the case is itself audited) and a `decision.made` with actor `reviewer:staff-1042 via partner:demo-bank` |
+| 5 | `GET /v1/verification-sessions/{sessionId}/events` | | Includes `upload.viewed_by_reviewer` (opening the case is itself audited) and a `decision.made` with actor `reviewer:staff-1042 via partner:demo-bank` |
 
 ---
 
@@ -188,7 +188,7 @@ Same as A6, but decide with `{ "outcome": "Rejected", "reasonCode": "DOCUMENT_MI
 | Same document, two open sessions | Session 1: doc `DOC_NUMBER=DUP1`, stop before the selfie. Session 2: doc `DOC_NUMBER=DUP1`, clean selfie | `CONCURRENT_SESSIONS_SAME_DOCUMENT` | |
 | Reused selfie | Session 1: complete normally. Session 2: clean doc, then for the selfie **don't** rerun the script; reuse the same JSON body and file | `SELFIE_REUSED` | Same photo across applicants is a classic fraud signal |
 | High IP velocity | Create 11+ sessions with the same `customer.ipAddress`, then complete one | `HIGH_IP_VELOCITY` | |
-| File swapped after upload | Declare with `"sha256": "0000…0000"` (64 zeros) but the real `sizeBytes`, then PUT the real file | `ARTIFACT_INTEGRITY_MISMATCH` on the check, plus a recapture request | `complete` succeeds; the worker re-hashes the file and catches the mismatch before any vendor sees it. After `complete` the bytes are sealed, so re-PUTting the upload URL can't swap what a vendor reads |
+| File swapped after upload | Declare with `"sha256": "0000…0000"` (64 zeros) but the real `sizeBytes`, then PUT the real file | `UPLOAD_INTEGRITY_MISMATCH` on the check, plus a recapture request | `complete` succeeds; the worker re-hashes the file and catches the mismatch before any vendor sees it. After `complete` the bytes are sealed, so re-PUTting the upload URL can't swap what a vendor reads |
 
 Pass several markers like this: `-Markers DOC_TAMPERED,DOC_NUMBER=RPT1`.
 
@@ -219,12 +219,12 @@ All errors are `application/problem+json` with a stable `code`.
 | Wrong content type | Declare with `"contentType": "image/gif"` | **400** `validation_failed` |
 | Bad hash | `"sha256": "abc"` | **400** `validation_failed` |
 | Too big | `"sizeBytes": 20000000` (limit 10 MB) | **400** `validation_failed` |
-| Selfie before document | Declare `"type": "Selfie"` on a new session | **409** `unexpected_artifact` |
+| Selfie before document | Declare `"type": "Selfie"` on a new session | **409** `unexpected_upload` |
 | Complete without uploading | Declare, skip the PUT, call `complete` | **422** `upload_not_found` |
 | Size doesn't match | Declare `sizeBytes` 1 larger than the file, PUT, `complete` | **422** `upload_size_mismatch` |
-| Complete twice | Call `complete` again on the same artifact | **202**, same answer (safe to retry) |
-| Upload while checks are running | Declare a document again right after `complete` (status `DocumentSubmitted`) | **409** `unexpected_artifact` |
-| Upload after the session finished | Declare a document on an Approved / Rejected / ManualReview session | **409** `unexpected_artifact` |
+| Complete twice | Call `complete` again on the same uploaded file | **202**, same answer (safe to retry) |
+| Upload while checks are running | Declare a document again right after `complete` (status `DocumentSubmitted`) | **409** `unexpected_upload` |
+| Upload after the session finished | Declare a document on an Approved / Rejected / ManualReview session | **409** `unexpected_upload` |
 | QR token used twice | Redeem the same handoff token again | **422** `handoff_invalid`, and the audit trail gets `handoff.redeem_failed` (reason `already_redeemed`) |
 | Old QR after a new one | Create a handoff twice, redeem the **first** token | **422** `handoff_invalid` (reason `revoked`). Only one live QR per session |
 | Unknown QR token | `{ "token": "made-up" }` | **422** `handoff_invalid`, the same message, so valid tokens can't be probed |

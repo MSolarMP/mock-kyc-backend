@@ -34,6 +34,7 @@ public static class PartnerEndpoints
             .WithSummary("Get the append-only audit trail of a session");
     }
 
+    // Starts a verification session for an applicant; idempotent on the Idempotency-Key header.
     private static async Task<IResult> CreateSession(
         CreateSessionRequest request,
         // Nullable so a missing header gets our validation error below; bound here so Swagger shows the field.
@@ -88,6 +89,7 @@ public static class PartnerEndpoints
         CancellationToken ct) =>
         db.Sessions.SingleOrDefaultAsync(s => s.PartnerId == partnerId && s.IdempotencyKey == key, ct);
 
+    // Returns the existing session for a repeated Idempotency-Key, with a fresh client token.
     private static async Task<IResult> Replay(VerificationSession existing, string requestHash,
         CreateSessionRequest request, KycDbContext db, DateTimeOffset now, CancellationToken ct)
     {
@@ -103,6 +105,7 @@ public static class PartnerEndpoints
         return Results.Ok(new CreateSessionResponse(existing.Id, existing.Status, existing.ExpiresAt, token, entity.ExpiresAt));
     }
 
+    // Full session status, checks and decisions for the owning partner.
     private static async Task<IResult> GetSession(Guid sessionId, ClaimsPrincipal user, KycDbContext db,
         TimeProvider clock, CancellationToken ct)
     {
@@ -110,6 +113,7 @@ public static class PartnerEndpoints
         return Results.Ok(session.ToView(clock.GetUtcNow()));
     }
 
+    // The session's append-only audit events, paged by id.
     private static async Task<IResult> GetAuditTrail(Guid sessionId, ClaimsPrincipal user, KycDbContext db,
         long? after, int? limit, CancellationToken ct)
     {

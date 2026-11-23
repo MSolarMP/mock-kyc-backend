@@ -20,6 +20,7 @@ public class Partner
 
     public List<PartnerApiKey> ApiKeys { get; private set; } = [];
 
+    // Creates an active tenant; image retention must be at least one day.
     public static Partner Create(string id, string name, int imageRetentionDays, string? webhookUrl, DateTimeOffset now)
     {
         if (imageRetentionDays < 1) throw new BusinessRuleException("invalid_retention", "Retention must be at least 1 day.");

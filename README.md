@@ -51,7 +51,7 @@ codes leak to customers.
 | Caller | Auth | Endpoints |
 |---|---|---|
 | Partner backend | `X-Api-Key: dev-partner-key` | `POST /v1/verification-sessions` (requires `Idempotency-Key`), `GET /v1/verification-sessions/{id}`, `GET …/{id}/events` |
-| Customer device | `Authorization: Bearer <clientToken>` | `GET /v1/client/session`, `POST /v1/client/session/handoff`, `POST /v1/client/session/artifacts`, `POST …/artifacts/{id}/complete` |
+| Customer device | `Authorization: Bearer <clientToken>` | `GET /v1/client/session`, `POST /v1/client/session/handoff`, `POST /v1/client/session/uploads`, `POST …/uploads/{id}/complete` |
 | Second device | none (token in body, rate-limited) | `POST /v1/handoff/redeem` |
 | Reviewer (partner back office) | `X-Api-Key: dev-partner-key` + `X-Reviewer-Id: <staff id>` | `GET /v1/reviews`, `GET /v1/reviews/{id}`, `POST /v1/reviews/{id}/decision` |
 

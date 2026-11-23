@@ -29,6 +29,7 @@ public record ProviderResult(
     IReadOnlyList<string> ReasonCodes,
     string ProviderReference);
 
+// Identity fields a document check reads off the ID.
 public sealed record ExtractedIdentity(
     string DocumentNumber,
     string DocumentType,

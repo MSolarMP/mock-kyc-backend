@@ -192,7 +192,7 @@ If a worker crashes after the vendor answered but before saving, the job reruns 
 ### Decision 5.1: Postgres (relational), not NoSQL
 - The critical write touches several tables at once (session status, provider check, audit row, job completion) and must be **one ACID transaction**. Native in Postgres. (MongoDB and DynamoDB do support transactions now, but as the exception path with limits.)
 - The **queue lives in the same database**, which is what makes decision 2.2 work. A NoSQL store would need a separate queue and bring back dual writes.
-- The data is relational (partner → sessions → artifacts/checks/decisions/audit); foreign keys and unique constraints let the DB enforce rules (e.g. `UNIQUE (partner_id, idempotency_key)`).
+- The data is relational (partner → sessions → uploaded files/checks/decisions/audit); foreign keys and unique constraints let the DB enforce rules (e.g. `UNIQUE (partner_id, idempotency_key)`).
 - **Investigations are ad-hoc SQL** ("has this ID number been rejected anywhere in the last 90 days?"). DynamoDB needs access patterns designed in advance, and fraud questions are exactly the ones you can't predict.
 - NoSQL wins at millions of simple key-value writes a second. We're at ~30 requests a second.
 
@@ -213,7 +213,7 @@ If a worker crashes after the vendor answered but before saving, the job reruns 
 |---|---|
 | `partners` | **New.** One row per bank: API key hash(es), webhook URL, webhook secret. Onboarding a bank needs no deploy. |
 | `verification_sessions` | Current state. `UNIQUE (partner_id, idempotency_key)` prevents duplicate sessions on retried POSTs. |
-| `artifacts` | Image metadata only (type, size, SHA-256, S3 key). Bytes live in S3. |
+| `uploaded_files` | Image metadata only (type, size, SHA-256, S3 key). Bytes live in S3. |
 | `provider_checks` | Each vendor result: vendor, outcome, score, reasons, vendor reference. |
 | `decisions` | Every decision, not just the last (automated ManualReview, then reviewer Approved), with rules version and reviewer. |
 | `audit_events` | The append-only trail. |
@@ -227,7 +227,7 @@ If a worker crashes after the vendor answered but before saving, the job reruns 
 - **Columns:** `id, session_id, event_type, actor_type, actor_id, correlation_id, ip_address, data (JSON), occurred_at`.
 - **No personal data** in audit rows: ids, codes and statuses only. Reviewer notes live in `decisions`.
 - **Device details:** a customer's `actor_id` is their token id; the token row holds channel, user agent and whether it came via handoff.
-- Reviewer **views** of images are audited too (`artifact.viewed_by_reviewer`).
+- Reviewer **views** of images are audited too (`upload.viewed_by_reviewer`).
 - **Documented, not built:** a hash chain (each row stores the previous row's hash) for tamper evidence.
 
 Example: one session that went to manual review:
@@ -237,11 +237,11 @@ Example: one session that went to manual review:
 | 1 | 10:40:01 | `session.created` | Partner `bank-a` | applicantRef, channel `Web` |
 | 3 | 10:40:45 | `handoff.issued` | Customer (desktop token) | expires in 5 min |
 | 4 | 10:41:30 | `handoff.redeemed` | Customer (new mobile token) | phone IP |
-| 6 | 10:42:05 | `artifact.uploaded` | Customer (mobile) | IdentityDocument, sha256 |
+| 6 | 10:42:05 | `upload.completed` | Customer (mobile) | IdentityDocument, sha256 |
 | 8 | 10:42:13 | `check.completed` | System | DocumentValidation, vendor-a, Passed 0.93, ref |
 | 13 | 10:43:19 | `check.completed` | System | FaceMatch, vendor-a, Inconclusive 0.71, `FACE_MATCH_WEAK` |
 | 16 | 10:43:20 | `decision.made` | System | ManualReview |
-| 18 | 13:58:02 | `artifact.viewed_by_reviewer` | Reviewer `jane.d@bank-a` | viewed images |
+| 18 | 13:58:02 | `upload.viewed_by_reviewer` | Reviewer `jane.d@bank-a` | viewed images |
 | 19 | 14:05:31 | `decision.made` | Reviewer `jane.d@bank-a` | Approved, `IDENTITY_CONFIRMED_MANUALLY` |
 
 (Status-change rows between these are omitted here.)
@@ -250,7 +250,7 @@ Example: one session that went to manual review:
 A webhook is a `workflow_jobs` row written in the same transaction as the decision, so the job table already acts as the outbox. A dedicated outbox and relay are only needed once a broker is added.
 
 ### Decision 5.6: Keep the fraud indexes
-`document_number_hash` (repeat attempts after rejection), `artifacts.sha256` (same image reused across sessions), `(created_ip, created_at)` (automated abuse). Cheap now; this is what makes "future detection possible".
+`document_number_hash` (repeat attempts after rejection), `uploaded_files.sha256` (same image reused across sessions), `(created_ip, created_at)` (automated abuse). Cheap now; this is what makes "future detection possible".
 
 **Changes:** add `partners`; remove `outbox_messages` + `OutboxPublisher` + the outbox branch in `SaveChangesAsync`; keep trigger and indexes; possibly add `GET /v1/sessions/{id}/audit` for partners (confirm at step 11).
 
@@ -306,15 +306,15 @@ Three caller types, three credentials: **partner** (server) → API key; **revie
 ### Decision 7.2: Pre-signed URL direct upload
 - Options: (A) proxy bytes through our API (ties up API servers during slow mobile uploads, double bandwidth, raw images on our servers); (B) **pre-signed URLs**.
 - A **pre-signed URL** is an S3 URL signed with our credentials that allows one PUT, to one path, with one content type, for a few minutes. The phone never sees our credentials.
-- **Chosen: B.** Flow: `POST /v1/client/session/artifacts` (declare type, content type, size, sha256) → client PUTs to `uploadUrl` → `POST …/artifacts/{id}/complete`.
+- **Chosen: B.** Flow: `POST /v1/client/session/uploads` (declare type, content type, size, sha256) → client PUTs to `uploadUrl` → `POST …/uploads/{id}/complete`.
 
 ### Decision 7.3: Upload integrity checks
 | When | Check | Catches |
 |---|---|---|
 | Declare | Content type allowlist (`image/jpeg`, `image/png`), size limit, client-supplied SHA-256 | Wrong types, oversized files |
 | Complete | API `HEAD`s the object: exists, size and type match | "Done" without uploading, wrong size |
-| Complete | Copies the bytes to a **sealed** key the client has no upload URL for, points the artifact at it, and drops the original upload key | Overwriting the object after `complete` — the client's pre-signed PUT stays valid for its TTL |
-| Worker, before each vendor step | Re-computes SHA-256 against the declared hash — on every step, including face match, not cached | File swapped after upload, corruption; audited as `artifact.integrity_failed` |
+| Complete | Copies the bytes to a **sealed** key the client has no upload URL for, points the uploaded file at it, and drops the original upload key | Overwriting the object after `complete` — the client's pre-signed PUT stays valid for its TTL |
+| Worker, before each vendor step | Re-computes SHA-256 against the declared hash — on every step, including face match, not cached | File swapped after upload, corruption; audited as `upload.integrity_failed` |
 
 - Sealing on completion plus per-step re-hashing closes an image-swap window: without it a client could pass a real selfie for liveness, then overwrite it with a face matching the ID before the face-match step. See `SECURITY_PENTEST.md` (findings #1–#2).
 - The explicit `complete` call is used because S3 doesn't notify our API. Documented alternative: S3 event notifications (S3 → SQS).
@@ -324,7 +324,7 @@ Three caller types, three credentials: **partner** (server) → API key; **revie
 Short-lived; bytes never flow through our worker (`ProviderRequest.ImageUrl`).
 
 ### Decision 7.5: Bucket security
-Private bucket; encryption at rest (KMS in production); storage keys contain no personal data (`sessions/{sessionId}/{artifactId}`); retakes create a new artifact and mark the old one `Superseded` (kept for fraud review); signed URLs are never logged.
+Private bucket; encryption at rest (KMS in production); storage keys contain no personal data (`sessions/{sessionId}/{uploadedFileId}`); retakes create a new uploaded file and mark the old one `Superseded` (kept for fraud review); signed URLs are never logged.
 
 **Changes:** none expected; matches current code.
 
@@ -354,7 +354,7 @@ Private bucket; encryption at rest (KMS in production); storage keys contain no 
 - **Chosen: B.** Keep `FieldProtector` (`src/Kyc.Infrastructure/Security/Crypto.cs`, ~40 lines). AES-GCM is authenticated: tampering makes decryption fail. A key id is stored with each value so keys can be rotated. Production key from KMS / Key Vault, never config files. C documented as the next step.
 
 ### Decision 8.4: Reviewer access is masked and audited
-ID number shown masked (`*********1234`), images via short-lived URLs, every view written as `artifact.viewed_by_reviewer`. Already built.
+ID number shown masked (`*********1234`), images via short-lived URLs, every view written as `upload.viewed_by_reviewer`. Already built.
 
 ### Decision 8.5: Document number stored as an HMAC
 - Needed to detect "repeated verification attempts after rejection".
@@ -364,7 +364,7 @@ ID number shown masked (`*********1234`), images via short-lived URLs, every vie
 ### Decision 8.6: Retention configurable per partner
 - **Tension:** POPIA/GDPR data minimisation (delete when no longer needed) vs FICA (accountable institution keeps identification records for at least 5 years after the relationship ends).
 - Options: (A) we keep everything 5+ years (a big, long-lived biometric store, the worst thing to have breached); (B) purge images quickly, the bank keeps the FICA record; (C) retention configurable per partner, default as B.
-- **Chosen: C.** The existing maintenance job purges image bytes N days after the decision (metadata kept, `artifact.purged` audited); make N per partner.
+- **Chosen: C.** The existing maintenance job purges image bytes N days after the decision (metadata kept, `upload.purged` audited); make N per partner.
 - **Stated assumption (README):** the bank, as the FICA accountable institution, holds the long-term identity record; retention periods to be confirmed with its compliance team.
 - Kept long-term: audit trail, decisions, provider check results (no images, no readable identity).
 - Documented, not built: **legal hold** flag; S3 lifecycle rule as a backstop.
@@ -432,7 +432,7 @@ Documented as a validation plan (k6 against docker-compose with latency-injectin
 ### Decision 10.1: Routes grouped by caller
 - Partner (`X-Api-Key`): `POST /v1/verification-sessions`, `GET /{id}`, `GET /{id}/events` (audit trail; already built).
 - Reviewer (partner key + `reviewerId`): `GET /v1/reviews`, `GET /v1/reviews/{id}` (view audited), `POST /v1/reviews/{id}/decision`.
-- Customer (Bearer token, no ids): `GET /v1/client/session`, `POST /handoff`, `POST /artifacts`, `POST /artifacts/{artifactId}/complete`.
+- Customer (Bearer token, no ids): `GET /v1/client/session`, `POST /handoff`, `POST /uploads`, `POST /uploads/{uploadedFileId}/complete`.
 - Public: `POST /v1/handoff/redeem`.
 - One auth scheme and one rate-limit partition per group; the security boundary is obvious.
 

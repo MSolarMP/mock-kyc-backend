@@ -18,6 +18,7 @@ namespace Kyc.Infrastructure;
 
 public static class DependencyInjection
 {
+    // Registers domain services, EF, storage, crypto, the vendor providers, and the job handlers.
     public static IServiceCollection AddKycInfrastructure(this IServiceCollection services, IConfiguration config)
     {
         services.AddSingleton(TimeProvider.System);
@@ -51,6 +52,7 @@ public static class DependencyInjection
         return services;
     }
 
+    // Adds the background worker (job processor) and the maintenance (expiry + purge) hosted services.
     public static IServiceCollection AddKycWorker(this IServiceCollection services)
     {
         services.AddHostedService<JobProcessor>();

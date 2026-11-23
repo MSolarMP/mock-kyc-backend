@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Infrastructure.Storage;
 
+// S3/SeaweedFS connection settings, upload size limit, and pre-signed URL lifetimes.
 public sealed class StorageOptions
 {
     public const string Section = "Storage";
@@ -24,6 +25,7 @@ public sealed class StorageOptions
 
 public sealed record ObjectMetadata(long SizeBytes, string? ContentType);
 
+// Image storage: pre-signed up/download URLs, object metadata, read, server-side copy, delete, bucket setup.
 public interface IObjectStorage
 {
     Task<Uri> CreateUploadUrlAsync(string key, string contentType, TimeSpan ttl);

@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Kyc.Infrastructure.Persistence;
 
+// EF Core context: the entity sets and mappings, plus the hook that turns domain events into audit rows on save.
 public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContext requestContext, TimeProvider clock)
     : DbContext(options)
 {

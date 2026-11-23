@@ -12,6 +12,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Infrastructure.Workflow.Handlers;
 
+// Shared helpers for the job handlers: load a session, verify file integrity, record a check, move to a decision or a human.
 public abstract class HandlerBase(
     IObjectStorage storage,
     IOptions<StorageOptions> storageOptions,
@@ -25,6 +26,7 @@ public abstract class HandlerBase(
     protected ILogger Logger => logger;
     protected IObjectStorage Storage => storage;
 
+    // Loads a session together with its uploads, checks and decisions.
     protected static Task<VerificationSession?> LoadSessionAsync(KycDbContext db, Guid id, CancellationToken ct) =>
         db.Sessions
             .Include(s => s.UploadedFiles)
@@ -52,6 +54,7 @@ public abstract class HandlerBase(
         return false;
     }
 
+    // Saves a provider check, records check.completed, and emits the provider-call metric.
     protected ProviderCheck RecordCheck(KycDbContext db, VerificationSession session, Guid uploadedFileId, CheckType type,
         string provider, string? reference, CheckOutcome outcome, decimal? score, IReadOnlyList<string> reasons,
         int attempt, long durationMs)
@@ -75,6 +78,7 @@ public abstract class HandlerBase(
         return check;
     }
 
+    // Moves the session to PendingDecision and queues the AssessRiskAndDecide job.
     protected void GoToDecision(KycDbContext db, VerificationSession session, string reason)
     {
         session.TransitionTo(SessionStatus.PendingDecision, clock.GetUtcNow(), reason);

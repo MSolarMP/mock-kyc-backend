@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Infrastructure.Maintenance;
 
+// How often the maintenance sweep runs.
 public sealed class RetentionOptions
 {
     public const string Section = "Retention";
@@ -45,6 +46,7 @@ public sealed class MaintenanceService(
         } while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
+    // Marks sessions that timed out waiting on the customer as Expired.
     internal async Task<int> ExpireAbandonedSessionsAsync(CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();
@@ -70,6 +72,7 @@ public sealed class MaintenanceService(
         return lapsed.Count;
     }
 
+    // Deletes stored images past each partner's retention window, keeping the metadata rows.
     internal async Task<int> PurgeImagesAsync(CancellationToken ct)
     {
         await using var scope = scopes.CreateAsyncScope();

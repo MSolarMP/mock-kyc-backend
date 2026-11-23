@@ -137,7 +137,7 @@ public class VendorAAdapterTests
     public async Task Classifies_http_errors(int status, Type expected)
     {
         var ex = await Record.ExceptionAsync(() =>
-            VendorAAdapter.Call(() => throw new VendorAApiException(status, "boom")));
+            VendorAAdapter.MapVendorErrors(() => throw new VendorAApiException(status, "boom")));
         Assert.IsType(expected, ex);
     }
 }

@@ -128,7 +128,7 @@ sequenceDiagram
     API-->>M: pre-signed PUT URL (content-type bound, 5 min)
     M->>S3: PUT image bytes
     M->>API: POST /artifacts/{id}/complete
-    Note over API: HEAD object: size/type match<br/>one TX: status + audit + job
+    Note over API: HEAD object: size/type match<br/>seal bytes to a key the client can't overwrite<br/>one TX: status + audit + job
     API-->>M: 202 Accepted
     W->>DB: claim job (SKIP LOCKED, lease)
     W->>S3: re-hash bytes against declared sha256
@@ -193,7 +193,8 @@ Ids are UUIDv7 (time-ordered, so index inserts stay local). Enums are stored as 
 - **Least exposure**: customers get no reason codes or scores (they would coach fraudsters). Reviewers see a
   masked document number and **short-lived** image links, and every case opened is audited (`artifact.viewed_by_reviewer`).
 - **Uploads**: pre-signed URLs are bound to key + content type and expire in 5 minutes. Size and type are checked
-  on confirmation, and the bytes are **re-hashed** before any vendor sees them.
+  on confirmation, which then **seals** the object under a key the client can't overwrite, and the bytes are
+  **re-hashed** before each vendor step.
 - **Tokens**: random 256-bit, opaque, stored as hashes, revocable. API keys are compared in constant time.
 - **Abuse**: rate limits per IP (redeem), per session, and per client. In production these move to the gateway or WAF
   alongside bot protection.

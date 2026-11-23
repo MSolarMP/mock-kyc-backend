@@ -56,9 +56,9 @@ public class SessionStateMachineTests
     public void Transition_records_a_published_status_change_event()
     {
         var session = NewSession();
-        var artifact = session.AddArtifact(ArtifactType.IdentityDocument, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now);
-        artifact.MarkUploaded(Now);
-        session.SubmitArtifact(artifact, Now);
+        var uploadedFile = session.AddUploadedFile(UploadedFileType.IdentityDocument, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now);
+        uploadedFile.MarkUploaded(Now);
+        session.SubmitUploadedFile(uploadedFile, Now);
 
         Assert.Equal(SessionStatus.DocumentSubmitted, session.Status);
         Assert.Equal(1, session.DocumentAttempts);
@@ -79,18 +79,18 @@ public class SessionStateMachineTests
     {
         var session = NewSession();
         var ex = Assert.Throws<SessionStateConflictException>(() =>
-            session.AddArtifact(ArtifactType.Selfie, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now));
-        Assert.Equal("unexpected_artifact", ex.Code);
+            session.AddUploadedFile(UploadedFileType.Selfie, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now));
+        Assert.Equal("unexpected_upload", ex.Code);
     }
 
     [Fact]
     public void New_upload_supersedes_an_unfinished_one_of_the_same_type()
     {
         var session = NewSession();
-        var first = session.AddArtifact(ArtifactType.IdentityDocument, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now);
-        var second = session.AddArtifact(ArtifactType.IdentityDocument, "image/jpeg", 100, new string('b', 64), Guid.NewGuid(), Now);
-        Assert.Equal(ArtifactStatus.Superseded, first.Status);
-        Assert.Equal(ArtifactStatus.PendingUpload, second.Status);
+        var first = session.AddUploadedFile(UploadedFileType.IdentityDocument, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now);
+        var second = session.AddUploadedFile(UploadedFileType.IdentityDocument, "image/jpeg", 100, new string('b', 64), Guid.NewGuid(), Now);
+        Assert.Equal(UploadedFileStatus.Superseded, first.Status);
+        Assert.Equal(UploadedFileStatus.PendingUpload, second.Status);
     }
 
     [Fact]
@@ -100,9 +100,9 @@ public class SessionStateMachineTests
         Assert.True(session.HasLapsed(Now.AddMinutes(6)));
         Assert.Throws<SessionExpiredException>(() => session.EnsureUsableByCustomer(Now.AddMinutes(6)));
 
-        var artifact = session.AddArtifact(ArtifactType.IdentityDocument, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now);
-        artifact.MarkUploaded(Now);
-        session.SubmitArtifact(artifact, Now); // now DocumentSubmitted (processing)
+        var uploadedFile = session.AddUploadedFile(UploadedFileType.IdentityDocument, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now);
+        uploadedFile.MarkUploaded(Now);
+        session.SubmitUploadedFile(uploadedFile, Now); // now DocumentSubmitted (processing)
         Assert.False(session.HasLapsed(Now.AddMinutes(6)));
     }
 
@@ -131,14 +131,14 @@ public class SessionStateMachineTests
         var session = NewSession();
         for (var i = 0; i < VerificationSession.MaxDocumentAttempts; i++)
         {
-            var a = session.AddArtifact(ArtifactType.IdentityDocument, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now);
+            var a = session.AddUploadedFile(UploadedFileType.IdentityDocument, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now);
             a.MarkUploaded(Now);
-            session.SubmitArtifact(a, Now);
+            session.SubmitUploadedFile(a, Now);
             session.TransitionTo(SessionStatus.Created, Now, "recapture");
         }
-        var last = session.AddArtifact(ArtifactType.IdentityDocument, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now);
+        var last = session.AddUploadedFile(UploadedFileType.IdentityDocument, "image/jpeg", 100, new string('a', 64), Guid.NewGuid(), Now);
         last.MarkUploaded(Now);
-        var ex = Assert.Throws<SessionStateConflictException>(() => session.SubmitArtifact(last, Now));
+        var ex = Assert.Throws<SessionStateConflictException>(() => session.SubmitUploadedFile(last, Now));
         Assert.Equal("attempts_exhausted", ex.Code);
     }
 

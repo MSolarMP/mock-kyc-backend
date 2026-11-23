@@ -57,16 +57,16 @@ function Get-Sha256Hex([byte[]]$Bytes) {
     return (($sha.ComputeHash($Bytes) | ForEach-Object { $_.ToString("x2") }) -join "")
 }
 
-function Send-Artifact($Token, [string]$Type, [byte[]]$Bytes) {
+function Send-Upload($Token, [string]$Type, [byte[]]$Bytes) {
     $auth = @{ Authorization = "Bearer $Token" }
-    $slot = Invoke-Api POST "/v1/client/session/artifacts" @{
+    $slot = Invoke-Api POST "/v1/client/session/uploads" @{
         type = $Type; contentType = "image/jpeg"; sizeBytes = $Bytes.Length; sha256 = (Get-Sha256Hex $Bytes)
     } $auth
     Write-Ok "pre-signed PUT issued for $Type (expires $($slot.expiresAt))"
     # Straight to object storage, the API never sees the bytes.
     Invoke-WebRequest -Method Put -Uri $slot.uploadUrl -Body $Bytes -ContentType "image/jpeg" -UseBasicParsing | Out-Null
     Write-Ok "uploaded $($Bytes.Length) bytes directly to object storage"
-    $state = Invoke-Api POST "/v1/client/session/artifacts/$($slot.artifactId)/complete" $null $auth
+    $state = Invoke-Api POST "/v1/client/session/uploads/$($slot.uploadedFileId)/complete" $null $auth
     Write-Ok "upload confirmed -> status $($state.status)"
 }
 
@@ -95,7 +95,7 @@ function Invoke-Scenario([string]$Name) {
         Write-Step "Setting the scene: an earlier session with the same document was rejected"
         $prior = Invoke-Api POST "/v1/verification-sessions" @{ applicantReference = "prior-$salt"; channel = "Web" } `
             @{ "X-Api-Key" = $PartnerKey; "Idempotency-Key" = "prior-$salt" }
-        Send-Artifact $prior.clientToken "IdentityDocument" (New-TestImage @("DOC_NUMBER=RPT900101", "DOC_TAMPERED") "prior-$salt")
+        Send-Upload $prior.clientToken "IdentityDocument" (New-TestImage @("DOC_NUMBER=RPT900101", "DOC_TAMPERED") "prior-$salt")
         $p = Wait-ForNextAction $prior.clientToken @("COMPLETE")
         Write-Ok "prior session finished: $($p.status)"
     }
@@ -129,19 +129,19 @@ function Invoke-Scenario([string]$Name) {
     $phone = $mobile.clientToken
 
     Write-Step "4. Phone uploads the identity document"
-    Send-Artifact $phone "IdentityDocument" (New-TestImage $docMarkers "doc-$salt")
+    Send-Upload $phone "IdentityDocument" (New-TestImage $docMarkers "doc-$salt")
     if ($recapture) {
         $s = Wait-ForNextAction $phone @("UPLOAD_DOCUMENT", "UPLOAD_SELFIE")
         if ($s.recaptureRequested) {
             Write-Ok "provider said the image is unreadable -> recapture requested ($($s.documentAttemptsRemaining) attempts left)"
-            Send-Artifact $phone "IdentityDocument" (New-TestImage @() "doc2-$salt")
+            Send-Upload $phone "IdentityDocument" (New-TestImage @() "doc2-$salt")
         }
     }
 
     $s = Wait-ForNextAction $phone @("UPLOAD_SELFIE", "COMPLETE", "REVIEW") -TimeoutSeconds 120
     if ($s.nextAction -eq "UPLOAD_SELFIE") {
         Write-Step "5. Document accepted; phone uploads a selfie"
-        Send-Artifact $phone "Selfie" (New-TestImage $selfieMarkers "selfie-$salt")
+        Send-Upload $phone "Selfie" (New-TestImage $selfieMarkers "selfie-$salt")
         $s = Wait-ForNextAction $phone @("COMPLETE", "REVIEW") -TimeoutSeconds 120
     }
 

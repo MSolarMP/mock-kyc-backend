@@ -5,17 +5,17 @@ namespace Kyc.Infrastructure.Providers;
 // Vendor-neutral contracts. Each vendor has an adapter that maps onto these.
 public sealed record ProviderRequest(
     Guid SessionId,
-    Guid ArtifactId,
-    /// <summary>Short-lived pre-signed URL the vendor downloads the image from.</summary>
+    Guid UploadedFileId,
+    // Short-lived pre-signed URL the vendor downloads the image from.
     Uri ImageUrl,
     string StorageKey,
-    /// <summary>Same on every retry of a job, so the vendor can de-duplicate.</summary>
+    // Same on every retry of a job.
     string IdempotencyKey,
     int Attempt);
 
 public sealed record FaceMatchRequest(
     Guid SessionId,
-    Guid SelfieArtifactId,
+    Guid SelfieUploadedFileId,
     Uri SelfieUrl,
     string SelfieStorageKey,
     Uri DocumentUrl,
@@ -63,8 +63,8 @@ public interface IFaceMatchProvider
     Task<ProviderResult> MatchAsync(FaceMatchRequest request, CancellationToken ct);
 }
 
-/// <summary>Retryable failure (timeout, 5xx, rate limit, circuit open). The job retries with backoff.</summary>
+// Retryable failure (timeout, 5xx, rate limit, circuit open). The job retries with backoff.
 public sealed class TransientProviderException(string message, Exception? inner = null) : Exception(message, inner);
 
-/// <summary>Failure a retry can't fix (e.g. 401). The job is dead-lettered and the session goes to manual review.</summary>
+// Failure a retry can't fix (e.g. 401). The job is dead-lettered and the session goes to manual review.
 public sealed class PermanentProviderException(string message, Exception? inner = null) : Exception(message, inner);

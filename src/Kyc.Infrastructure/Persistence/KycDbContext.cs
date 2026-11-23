@@ -13,7 +13,7 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
     public DbSet<Partner> Partners => Set<Partner>();
     public DbSet<PartnerApiKey> PartnerApiKeys => Set<PartnerApiKey>();
     public DbSet<VerificationSession> Sessions => Set<VerificationSession>();
-    public DbSet<Artifact> Artifacts => Set<Artifact>();
+    public DbSet<UploadedFile> UploadedFiles => Set<UploadedFile>();
     public DbSet<ProviderCheck> ProviderChecks => Set<ProviderCheck>();
     public DbSet<Decision> Decisions => Set<Decision>();
     public DbSet<HandoffToken> HandoffTokens => Set<HandoffToken>();
@@ -23,11 +23,11 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
 
     protected override void ConfigureConventions(ModelConfigurationBuilder b)
     {
-        // Enums as strings so audit queries are readable without a lookup table.
+        // Enums as strings.
         b.Properties<SessionStatus>().HaveConversion<string>().HaveMaxLength(32);
         b.Properties<Channel>().HaveConversion<string>().HaveMaxLength(16);
-        b.Properties<ArtifactType>().HaveConversion<string>().HaveMaxLength(32);
-        b.Properties<ArtifactStatus>().HaveConversion<string>().HaveMaxLength(16);
+        b.Properties<UploadedFileType>().HaveConversion<string>().HaveMaxLength(32);
+        b.Properties<UploadedFileStatus>().HaveConversion<string>().HaveMaxLength(16);
         b.Properties<CheckType>().HaveConversion<string>().HaveMaxLength(32);
         b.Properties<CheckOutcome>().HaveConversion<string>().HaveMaxLength(16);
         b.Properties<DecisionOutcome>().HaveConversion<string>().HaveMaxLength(16);
@@ -74,7 +74,7 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.Property(x => x.Version).IsRowVersion(); // Postgres xmin
             e.Ignore(x => x.PendingEvents);
             e.Ignore(x => x.IsTerminal);
-            e.Ignore(x => x.ExpectedArtifact);
+            e.Ignore(x => x.ExpectedUploadType);
 
             e.HasIndex(x => new { x.PartnerId, x.IdempotencyKey }).IsUnique();
             e.HasIndex(x => new { x.PartnerId, x.ApplicantReference });
@@ -86,14 +86,14 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             // Fraud: attempts per IP
             e.HasIndex(x => new { x.CreatedIp, x.CreatedAt });
 
-            e.HasMany(x => x.Artifacts).WithOne().HasForeignKey(x => x.SessionId);
+            e.HasMany(x => x.UploadedFiles).WithOne().HasForeignKey(x => x.SessionId);
             e.HasMany(x => x.Checks).WithOne().HasForeignKey(x => x.SessionId);
             e.HasMany(x => x.Decisions).WithOne().HasForeignKey(x => x.SessionId);
         });
 
-        m.Entity<Artifact>(e =>
+        m.Entity<UploadedFile>(e =>
         {
-            e.ToTable("artifacts");
+            e.ToTable("uploaded_files");
             e.HasKey(x => x.Id);
             e.Property(x => x.StorageKey).HasMaxLength(256);
             e.Property(x => x.ContentType).HasMaxLength(64);
@@ -110,8 +110,8 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.Property(x => x.ProviderReference).HasMaxLength(128);
             e.Property(x => x.Score).HasPrecision(5, 4);
             e.HasIndex(x => new { x.SessionId, x.Type });
-            // One check per artifact per type, in case a job runs twice
-            e.HasIndex(x => new { x.ArtifactId, x.Type }).IsUnique();
+            // One check per uploaded file per type, in case a job runs twice
+            e.HasIndex(x => new { x.UploadedFileId, x.Type }).IsUnique();
         });
 
         m.Entity<Decision>(e =>
@@ -177,14 +177,14 @@ public class KycDbContext(DbContextOptions<KycDbContext> options, IRequestContex
             e.Property(x => x.Payload).HasColumnType("jsonb");
             e.Property(x => x.LockedBy).HasMaxLength(128);
             e.Property(x => x.CorrelationId).HasMaxLength(64);
-            // Partial index so the claim query stays fast as finished jobs pile up.
+            // Partial index covering only runnable jobs.
             e.HasIndex(x => x.RunAfter).HasFilter("status IN ('Pending','Running')")
                 .HasDatabaseName("ix_workflow_jobs_runnable");
             e.HasIndex(x => x.SessionId);
         });
     }
 
-    // Writes domain events as audit rows in the same transaction as the change, so the trail can't miss one.
+    // Writes domain events as audit rows in the same transaction as the change.
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         var sessions = ChangeTracker.Entries<VerificationSession>()

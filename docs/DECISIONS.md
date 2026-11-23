@@ -308,13 +308,15 @@ Three caller types, three credentials: **partner** (server) → API key; **revie
 - A **pre-signed URL** is an S3 URL signed with our credentials that allows one PUT, to one path, with one content type, for a few minutes. The phone never sees our credentials.
 - **Chosen: B.** Flow: `POST /v1/client/session/artifacts` (declare type, content type, size, sha256) → client PUTs to `uploadUrl` → `POST …/artifacts/{id}/complete`.
 
-### Decision 7.3: Three integrity checks
+### Decision 7.3: Upload integrity checks
 | When | Check | Catches |
 |---|---|---|
 | Declare | Content type allowlist (`image/jpeg`, `image/png`), size limit, client-supplied SHA-256 | Wrong types, oversized files |
 | Complete | API `HEAD`s the object: exists, size and type match | "Done" without uploading, wrong size |
-| Worker, before vendors | Re-computes SHA-256 against the declared hash | File swapped after upload, corruption; audited as `artifact.integrity_failed` |
+| Complete | Copies the bytes to a **sealed** key the client has no upload URL for, points the artifact at it, and drops the original upload key | Overwriting the object after `complete` — the client's pre-signed PUT stays valid for its TTL |
+| Worker, before each vendor step | Re-computes SHA-256 against the declared hash — on every step, including face match, not cached | File swapped after upload, corruption; audited as `artifact.integrity_failed` |
 
+- Sealing on completion plus per-step re-hashing closes an image-swap window: without it a client could pass a real selfie for liveness, then overwrite it with a face matching the ID before the face-match step. See `SECURITY_PENTEST.md` (findings #1–#2).
 - The explicit `complete` call is used because S3 doesn't notify our API. Documented alternative: S3 event notifications (S3 → SQS).
 - Documented, not built: malware scanning (GuardDuty Malware Protection for S3 / ClamAV), magic-byte file type check.
 

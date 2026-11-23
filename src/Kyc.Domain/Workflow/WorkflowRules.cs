@@ -8,8 +8,7 @@ public enum NextStep
     GoToDecision,
 }
 
-// Only image quality problems get a retry. Anything definitive goes straight to the decision
-// so we don't pay for more vendor checks on a session that will fail anyway.
+// Only image quality problems get a retry. Anything definitive goes straight to the decision.
 public static class WorkflowRules
 {
     public static NextStep AfterDocumentCheck(CheckOutcome outcome, int attemptsUsed) => outcome switch

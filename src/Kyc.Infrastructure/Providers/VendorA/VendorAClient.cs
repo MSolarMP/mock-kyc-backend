@@ -31,7 +31,7 @@ public sealed class SandboxVendorAClient(IObjectStorage storage, IOptions<Vendor
 
         var today = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime);
         var properties = new VendorADocumentProperties(
-            // Same file gives the same document number, so repeat attempts can be demoed.
+            // Same file gives the same document number.
             DocumentNumber: values.GetValueOrDefault("DOC_NUMBER") ?? ("ID" + sha[..11].ToUpperInvariant()),
             DocumentType: "national_identity_card",
             FirstName: "Test",
@@ -40,7 +40,7 @@ public sealed class SandboxVendorAClient(IObjectStorage storage, IOptions<Vendor
             DateOfExpiry: (m.Contains("DOC_EXPIRED") ? today.AddYears(-1) : today.AddYears(5)).ToString("yyyy-MM-dd"),
             IssuingCountry: "ZAF");
 
-        // Still return extracted data on tampering so we can link later attempts.
+        // Still return extracted data on tampering.
         if (m.Contains("DOC_TAMPERED"))
             return new VendorAReport(id, VendorAResult.Rejected, 12, ["visual_authenticity"], properties);
         if (m.Contains("DOC_UNCERTAIN"))
@@ -85,7 +85,7 @@ public sealed class SandboxVendorAClient(IObjectStorage storage, IOptions<Vendor
     private static string ReportId(string prefix) => $"va_{prefix}_{Guid.NewGuid():N}"[..24];
 }
 
-/// <summary>Reads <c>KYC_MOCK:NAME</c> or <c>KYC_MOCK:NAME=value</c> markers from file bytes.</summary>
+// Reads KYC_MOCK:NAME or KYC_MOCK:NAME=value markers from file bytes.
 public static class SandboxMarkers
 {
     public const string Prefix = "KYC_MOCK:";

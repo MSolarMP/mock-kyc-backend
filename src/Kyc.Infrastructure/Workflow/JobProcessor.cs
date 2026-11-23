@@ -26,14 +26,14 @@ public interface IJobHandler
 {
     JobType Type { get; }
 
-    /// <summary>Don't call SaveChanges. The processor saves your changes and the job completion together.</summary>
+    // Don't call SaveChanges. The processor saves your changes and the job completion together.
     Task HandleAsync(WorkflowJob job, KycDbContext db, CancellationToken ct);
 
-    /// <summary>Called once retries run out. Must leave the session able to move on.</summary>
+    // Called once retries run out. Must leave the session able to move on.
     Task OnExhaustedAsync(WorkflowJob job, KycDbContext db, Exception error, CancellationToken ct);
 }
 
-// Polls the job queue. Run more replicas to scale; SKIP LOCKED stops them clashing.
+// Polls the job queue. SKIP LOCKED stops workers clashing.
 public sealed class JobProcessor(
     IServiceScopeFactory scopes,
     IOptions<WorkerOptions> options,
@@ -41,7 +41,7 @@ public sealed class JobProcessor(
     KycMetrics metrics,
     ILogger<JobProcessor> logger) : BackgroundService
 {
-    // Stored in locked_by so you can see which instance holds a job.
+    // Written to locked_by.
     private readonly string _workerId = Truncate($"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}", 128);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

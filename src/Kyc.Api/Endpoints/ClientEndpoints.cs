@@ -15,7 +15,7 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Api.Endpoints;
 
-/// <summary>Customer device API. Auth is the session-bound token, so no route takes a session id.</summary>
+// Customer device API. Auth is the session-bound token.
 public static partial class ClientEndpoints
 {
     private static readonly HashSet<string> AllowedContentTypes = ["image/jpeg", "image/png"];
@@ -32,9 +32,9 @@ public static partial class ClientEndpoints
         group.MapGet("", GetSession).WithSummary("Current status and what the UI should do next (poll this)");
         group.MapPost("/handoff", CreateHandoff)
             .WithSummary("Create a single-use QR handoff link to continue on another device");
-        group.MapPost("/artifacts", CreateArtifact)
+        group.MapPost("/uploads", CreateUpload)
             .WithSummary("Declare an upload and receive a short-lived pre-signed PUT URL");
-        group.MapPost("/artifacts/{artifactId:guid}/complete", CompleteArtifact)
+        group.MapPost("/uploads/{uploadedFileId:guid}/complete", CompleteUpload)
             .WithSummary("Confirm the upload finished; starts the verification steps for it");
 
         app.MapPost("/v1/handoff/redeem", RedeemHandoff)
@@ -74,7 +74,7 @@ public static partial class ClientEndpoints
         await db.SaveChangesAsync(ct);
         metrics.Handoff("issued");
 
-        // Token goes in the URL fragment. Browsers don't send fragments, so it stays out of logs and Referer headers.
+        // Token goes in the URL fragment.
         var url = $"{options.Value.HandoffBaseUrl}#token={token}";
         return Results.Ok(new CreateHandoffResponse(url, handoff.ExpiresAt));
     }
@@ -107,7 +107,7 @@ public static partial class ClientEndpoints
             metrics.Handoff("rejected");
             if (handoff is not null)
             {
-                // Known token replayed or used late. Could be a stolen QR, so record it.
+                // Known token replayed or used late.
                 var target = await db.Sessions.SingleAsync(s => s.Id == handoff.SessionId, ct);
                 target.Record(AuditEventTypes.HandoffRedeemFailed, new
                 {
@@ -118,7 +118,7 @@ public static partial class ClientEndpoints
                 await db.SaveChangesAsync(ct);
             }
             loggers.CreateLogger("Handoff").LogWarning("Handoff redeem rejected");
-            // Same error for unknown, used and expired tokens so nobody can probe for valid ones.
+            // Same error for unknown, used and expired tokens.
             throw new BusinessRuleException("handoff_invalid", "This link is invalid or has expired. Generate a new QR code.");
         }
 
@@ -143,7 +143,7 @@ public static partial class ClientEndpoints
         return Results.Ok(new RedeemHandoffResponse(token, accessToken.ExpiresAt, session.ToClientView(now)));
     }
 
-    private static async Task<IResult> CreateArtifact(CreateArtifactRequest request, ClaimsPrincipal user,
+    private static async Task<IResult> CreateUpload(CreateUploadRequest request, ClaimsPrincipal user,
         KycDbContext db, IObjectStorage storage, IOptions<StorageOptions> storageOptions, TimeProvider clock,
         CancellationToken ct)
     {
@@ -158,63 +158,75 @@ public static partial class ClientEndpoints
         if (errors.Count > 0) return Problems.Validation([.. errors]);
 
         var now = clock.GetUtcNow();
-        var session = await db.Sessions.Include(s => s.Artifacts).SingleAsync(s => s.Id == user.SessionId(), ct);
+        var session = await db.Sessions.Include(s => s.UploadedFiles).SingleAsync(s => s.Id == user.SessionId(), ct);
         session.EnsureUsableByCustomer(now);
 
-        var artifact = session.AddArtifact(request.Type, request.ContentType, request.SizeBytes, request.Sha256!,
+        var uploadedFile = session.AddUploadedFile(request.Type, request.ContentType, request.SizeBytes, request.Sha256!,
             user.AccessTokenId(), now);
         await db.SaveChangesAsync(ct);
 
         var ttl = TimeSpan.FromSeconds(o.UploadUrlTtlSeconds);
-        var url = await storage.CreateUploadUrlAsync(artifact.StorageKey, artifact.ContentType, ttl);
-        return Results.Created($"/v1/client/session/artifacts/{artifact.Id}", new CreateArtifactResponse(
-            artifact.Id, url.ToString(), "PUT",
-            new Dictionary<string, string> { ["Content-Type"] = artifact.ContentType },
+        var url = await storage.CreateUploadUrlAsync(uploadedFile.StorageKey, uploadedFile.ContentType, ttl);
+        return Results.Created($"/v1/client/session/uploads/{uploadedFile.Id}", new CreateUploadResponse(
+            uploadedFile.Id, url.ToString(), "PUT",
+            new Dictionary<string, string> { ["Content-Type"] = uploadedFile.ContentType },
             now.Add(ttl)));
     }
 
-    private static async Task<IResult> CompleteArtifact(Guid artifactId, ClaimsPrincipal user, KycDbContext db,
+    private static async Task<IResult> CompleteUpload(Guid uploadedFileId, ClaimsPrincipal user, KycDbContext db,
         IObjectStorage storage, RequestContext requestContext, TimeProvider clock, KycMetrics metrics,
-        CancellationToken ct)
+        ILoggerFactory loggers, CancellationToken ct)
     {
         var now = clock.GetUtcNow();
-        var session = await db.Sessions.Include(s => s.Artifacts).SingleAsync(s => s.Id == user.SessionId(), ct);
-        var artifact = session.Artifacts.SingleOrDefault(a => a.Id == artifactId)
-                       ?? throw new NotFoundException("Artifact");
+        var session = await db.Sessions.Include(s => s.UploadedFiles).SingleAsync(s => s.Id == user.SessionId(), ct);
+        var uploadedFile = session.UploadedFiles.SingleOrDefault(a => a.Id == uploadedFileId)
+                       ?? throw new NotFoundException("UploadedFile");
 
         // A retried complete (lost response, double tap) gets the same answer.
-        if (artifact.Status == ArtifactStatus.Uploaded)
+        if (uploadedFile.Status == UploadedFileStatus.Uploaded)
             return Results.Accepted(value: session.ToClientView(now));
-        if (artifact.Status != ArtifactStatus.PendingUpload)
-            throw new SessionStateConflictException("artifact_not_pending", $"Artifact is {artifact.Status}.");
+        if (uploadedFile.Status != UploadedFileStatus.PendingUpload)
+            throw new SessionStateConflictException("upload_not_pending", $"This upload is {uploadedFile.Status}.");
 
         session.EnsureUsableByCustomer(now);
 
         // Check the object exists and matches the declared size and type.
         // The worker re-hashes the bytes before any vendor sees them.
-        var meta = await storage.GetMetadataAsync(artifact.StorageKey, ct)
+        var meta = await storage.GetMetadataAsync(uploadedFile.StorageKey, ct)
                    ?? throw new BusinessRuleException("upload_not_found", "No uploaded file was found. Upload it to the URL first.");
-        if (meta.SizeBytes != artifact.DeclaredSizeBytes)
+        if (meta.SizeBytes != uploadedFile.DeclaredSizeBytes)
             throw new BusinessRuleException("upload_size_mismatch", "The uploaded file size does not match the declared size.");
-        if (meta.ContentType is not null && meta.ContentType != artifact.ContentType)
+        if (meta.ContentType is not null && meta.ContentType != uploadedFile.ContentType)
             throw new BusinessRuleException("upload_type_mismatch", "The uploaded content type does not match the declared type.");
 
-        artifact.MarkUploaded(now);
-        session.Record(AuditEventTypes.ArtifactUploaded, new
+        // Copy the bytes to a sealed key the client has no upload URL for, then point the uploaded file at it.
+        // A later overwrite of the original upload key then can't change what vendors or reviewers read.
+        var uploadKey = uploadedFile.StorageKey;
+        var sealedKey = UploadedFile.BuildStorageKey(session.Id, uploadedFile.Type,
+            $"{uploadedFile.Id:N}.{Guid.NewGuid():N}.{UploadedFile.Extension(uploadedFile.ContentType)}");
+        await storage.CopyAsync(uploadKey, sealedKey, ct);
+        uploadedFile.MarkUploaded(sealedKey, now);
+        session.Record(AuditEventTypes.UploadCompleted, new
         {
-            artifactId = artifact.Id,
-            type = artifact.Type.ToString(),
+            uploadedFileId = uploadedFile.Id,
+            type = uploadedFile.Type.ToString(),
             sizeBytes = meta.SizeBytes,
-            sha256 = artifact.DeclaredSha256,
+            sha256 = uploadedFile.DeclaredSha256,
         });
-        session.SubmitArtifact(artifact, now);
+        session.SubmitUploadedFile(uploadedFile, now);
 
-        var jobType = artifact.Type == ArtifactType.IdentityDocument ? JobType.ValidateDocument : JobType.CheckLiveness;
-        db.Enqueue(session.Id, jobType, new ArtifactJobPayload(artifact.Id), requestContext.CorrelationId, now);
+        var jobType = uploadedFile.Type == UploadedFileType.IdentityDocument ? JobType.ValidateDocument : JobType.CheckLiveness;
+        db.Enqueue(session.Id, jobType, new UploadedFileJobPayload(uploadedFile.Id), requestContext.CorrelationId, now);
 
         // State change, audit and job in one transaction.
         await db.SaveChangesAsync(ct);
-        metrics.ArtifactUploaded(artifact.Type.ToString());
+
+        // Drop the now-unreferenced upload key. Best effort: an orphan is harmless, so a failure here
+        // must not fail a completed upload.
+        try { await storage.DeleteAsync(uploadKey, ct); }
+        catch (Exception ex) { loggers.CreateLogger("UploadedFiles").LogWarning(ex, "Failed to delete superseded upload key"); }
+
+        metrics.UploadCompleted(uploadedFile.Type.ToString());
         return Results.Accepted(value: session.ToClientView(now));
     }
 }

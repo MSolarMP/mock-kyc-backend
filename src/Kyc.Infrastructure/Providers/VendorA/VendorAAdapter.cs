@@ -73,7 +73,7 @@ public sealed class VendorAAdapter(IVendorAClient client)
     private static ProviderResult ToResult(VendorAReport r) =>
         new(MapOutcome(r.Result), MapScore(r.Score), MapReasons(r.Breakdown), r.Id);
 
-    // 408/429/5xx are transient and retried. Other 4xx are permanent: retrying won't help.
+    // 408/429/5xx are transient and retried. Other 4xx are permanent.
     public static async Task<VendorAReport> Call(Func<Task<VendorAReport>> call)
     {
         try

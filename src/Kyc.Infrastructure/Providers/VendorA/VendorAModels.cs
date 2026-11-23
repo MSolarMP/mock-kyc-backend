@@ -15,9 +15,9 @@ public static class VendorAResult
 public sealed record VendorAReport(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("result")] string Result,
-    /// <summary>0-100. Null when the image couldn't be processed.</summary>
+    // 0-100. Null when the image couldn't be processed.
     [property: JsonPropertyName("score")] int? Score,
-    /// <summary>Sub-checks that raised a concern, e.g. "image_quality".</summary>
+    // Sub-checks that raised a concern, e.g. "image_quality".
     [property: JsonPropertyName("breakdown")] IReadOnlyList<string> Breakdown,
     [property: JsonPropertyName("properties")] VendorADocumentProperties? Properties = null);
 

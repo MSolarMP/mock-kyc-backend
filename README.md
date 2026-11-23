@@ -89,8 +89,8 @@ Errors are RFC 7807 `application/problem+json` with a stable `code` (e.g. `inval
 `handoff_invalid`, `idempotency_key_reused`, `concurrent_modification`, `session_expired`).
 
 **Upload flow:** declare the file (type, content type, size, sha256) → receive a pre-signed PUT URL → upload
-directly to object storage → call `complete`. The API never streams image bytes. The worker re-hashes the file
-before any vendor sees it.
+directly to object storage → call `complete`, which seals the bytes under a key the client can't overwrite. The
+API never streams image bytes. The worker re-hashes the file before each vendor step.
 
 ## Mock scenarios
 

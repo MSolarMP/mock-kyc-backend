@@ -10,7 +10,7 @@ public sealed class KycMetrics
     public static readonly ActivitySource ActivitySource = new("Kyc.Workflow");
 
     private readonly Counter<long> _sessionsCreated;
-    private readonly Counter<long> _artifactsUploaded;
+    private readonly Counter<long> _uploadsCompleted;
     private readonly Counter<long> _providerCalls;
     private readonly Histogram<double> _providerLatency;
     private readonly Counter<long> _decisions;
@@ -22,7 +22,7 @@ public sealed class KycMetrics
     {
         var meter = meterFactory.Create(MeterName);
         _sessionsCreated = meter.CreateCounter<long>("kyc.sessions.created");
-        _artifactsUploaded = meter.CreateCounter<long>("kyc.artifacts.uploaded");
+        _uploadsCompleted = meter.CreateCounter<long>("kyc.uploads.completed");
         _providerCalls = meter.CreateCounter<long>("kyc.provider.calls");
         _providerLatency = meter.CreateHistogram<double>("kyc.provider.latency", unit: "ms");
         _decisions = meter.CreateCounter<long>("kyc.decisions");
@@ -33,7 +33,7 @@ public sealed class KycMetrics
     }
 
     public void SessionCreated(string channel) => _sessionsCreated.Add(1, T("channel", channel));
-    public void ArtifactUploaded(string type) => _artifactsUploaded.Add(1, T("type", type));
+    public void UploadCompleted(string type) => _uploadsCompleted.Add(1, T("type", type));
 
     public void ProviderCall(string check, string provider, string outcome, double ms)
     {

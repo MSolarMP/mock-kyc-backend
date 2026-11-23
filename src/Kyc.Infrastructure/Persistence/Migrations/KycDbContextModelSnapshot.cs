@@ -23,7 +23,7 @@ namespace Kyc.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Kyc.Domain.Artifact", b =>
+            modelBuilder.Entity("Kyc.Domain.UploadedFile", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
@@ -88,18 +88,18 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                         .HasColumnName("uploaded_by_token_id");
 
                     b.HasKey("Id")
-                        .HasName("pk_artifacts");
+                        .HasName("pk_uploaded_files");
 
                     b.HasIndex("DeclaredSha256")
-                        .HasDatabaseName("ix_artifacts_declared_sha256");
+                        .HasDatabaseName("ix_uploaded_files_declared_sha256");
 
                     b.HasIndex("SessionId")
-                        .HasDatabaseName("ix_artifacts_session_id");
+                        .HasDatabaseName("ix_uploaded_files_session_id");
 
                     b.HasIndex("Status", "UploadedAt")
-                        .HasDatabaseName("ix_artifacts_status_uploaded_at");
+                        .HasDatabaseName("ix_uploaded_files_status_uploaded_at");
 
-                    b.ToTable("artifacts", (string)null);
+                    b.ToTable("uploaded_files", (string)null);
                 });
 
             modelBuilder.Entity("Kyc.Domain.AuditEvent", b =>
@@ -368,9 +368,9 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<Guid?>("ArtifactId")
+                    b.Property<Guid?>("UploadedFileId")
                         .HasColumnType("uuid")
-                        .HasColumnName("artifact_id");
+                        .HasColumnName("uploaded_file_id");
 
                     b.Property<int>("Attempt")
                         .HasColumnType("integer")
@@ -424,9 +424,9 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_provider_checks");
 
-                    b.HasIndex("ArtifactId", "Type")
+                    b.HasIndex("UploadedFileId", "Type")
                         .IsUnique()
-                        .HasDatabaseName("ix_provider_checks_artifact_id_type");
+                        .HasDatabaseName("ix_provider_checks_uploaded_file_id_type");
 
                     b.HasIndex("SessionId", "Type")
                         .HasDatabaseName("ix_provider_checks_session_id_type");
@@ -697,14 +697,14 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                     b.ToTable("workflow_jobs", (string)null);
                 });
 
-            modelBuilder.Entity("Kyc.Domain.Artifact", b =>
+            modelBuilder.Entity("Kyc.Domain.UploadedFile", b =>
                 {
                     b.HasOne("Kyc.Domain.VerificationSession", null)
-                        .WithMany("Artifacts")
+                        .WithMany("UploadedFiles")
                         .HasForeignKey("SessionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_artifacts_verification_sessions_session_id");
+                        .HasConstraintName("fk_uploaded_files_verification_sessions_session_id");
                 });
 
             modelBuilder.Entity("Kyc.Domain.Decision", b =>
@@ -754,7 +754,7 @@ namespace Kyc.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Kyc.Domain.VerificationSession", b =>
                 {
-                    b.Navigation("Artifacts");
+                    b.Navigation("UploadedFiles");
 
                     b.Navigation("Checks");
 

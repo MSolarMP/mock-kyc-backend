@@ -18,7 +18,7 @@ using OpenTelemetry.Resources;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Same binary runs as api, worker, or both, so each can scale on its own.
+// Same binary runs as api, worker, or both.
 var roles = (builder.Configuration["Kyc:Roles"] ?? "api,worker")
     .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
     .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -38,7 +38,7 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ProblemExceptionHandler>();
 
-// Pick the scheme from the header so rate limits can key on session or partner instead of IP (carrier NAT).
+// Pick the auth scheme from the request headers.
 builder.Services.AddAuthentication(AuthSchemes.Default)
     .AddPolicyScheme(AuthSchemes.Default, "API key or session token", o => o.ForwardDefaultSelector = ctx =>
         ctx.Request.Headers.ContainsKey("X-Api-Key") ? AuthSchemes.ApiKey : AuthSchemes.SessionToken)
@@ -49,7 +49,7 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(Policies.Customer, p => p.AddAuthenticationSchemes(AuthSchemes.SessionToken)
         .RequireClaim(KycClaims.SessionId));
 
-// Per-instance limits. At scale these move to the API gateway.
+// Per-instance rate limits.
 var redeemPerMinute = builder.Configuration.GetValue("RateLimits:HandoffRedeemPerMinute", 10);
 builder.Services.AddRateLimiter(o =>
 {
@@ -75,7 +75,7 @@ builder.Services.AddRateLimiter(o =>
         }));
 });
 
-// Trust X-Forwarded-For so audit and fraud signals get the real client IP.
+// Trust X-Forwarded-For for the client IP.
 builder.Services.Configure<ForwardedHeadersOptions>(o =>
 {
     o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
@@ -91,7 +91,7 @@ builder.Services.AddOpenTelemetry()
         .AddMeter(KycMetrics.MeterName)
         .AddAspNetCoreInstrumentation()
         .AddPrometheusExporter());
-// Tracing isn't wired up yet. Workflow spans already use KycMetrics.ActivitySource, so it just needs .WithTracing() and a collector.
+// Tracing isn't wired up yet; needs .WithTracing() and a collector.
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<KycDbContext>("database", tags: ["ready"]);
 
@@ -117,7 +117,7 @@ builder.Services.AddSwaggerGen(c =>
         Scheme = "bearer",
         Description = "Customer device token (clientToken from session creation or handoff redeem)",
     });
-    // Not auth, but declared as a scheme so Swagger's Authorize dialog has a field for it.
+    // Declared as a scheme only so Swagger's Authorize dialog shows a field for it.
     c.AddSecurityDefinition("ReviewerId", new OpenApiSecurityScheme
     {
         Type = SecuritySchemeType.ApiKey,
@@ -141,7 +141,7 @@ app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseAuthentication();
-app.UseRateLimiter();   // after auth so limits can key on session or partner
+app.UseRateLimiter();   // after authentication
 app.UseAuthorization();
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
@@ -162,7 +162,7 @@ app.Lifetime.ApplicationStarted.Register(() => PrintBanner(app, roles, isApi));
 
 app.Run();
 
-// Plain console output (not the JSON logger) so it's readable at a glance.
+// Plain console output, not the JSON logger.
 static void PrintBanner(WebApplication app, IEnumerable<string> roles, bool isApi)
 {
     var urls = app.Urls

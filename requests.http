@@ -43,7 +43,7 @@ User-Agent: Mozilla/5.0 (iPhone) Mobile
 @phoneToken = {{redeem.response.body.$.clientToken}}
 
 ### 5. Phone: request an upload slot (then PUT the file to uploadUrl with Content-Type: image/jpeg)
-POST {{baseUrl}}/v1/client/session/artifacts
+POST {{baseUrl}}/v1/client/session/uploads
 Authorization: Bearer {{phoneToken}}
 Content-Type: application/json
 

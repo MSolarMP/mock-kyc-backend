@@ -16,8 +16,8 @@ public sealed class RetentionOptions
     public int SweepIntervalSeconds { get; set; } = 60;
 }
 
-// Expires abandoned sessions and purges images past the partner's retention period (POPIA/GDPR).
-// Decisions and audit rows are kept since they hold no images or readable identity.
+// Expires abandoned sessions and purges images past the partner's retention period.
+// Decisions and audit rows are kept.
 public sealed class MaintenanceService(
     IServiceScopeFactory scopes,
     IOptions<RetentionOptions> options,
@@ -78,7 +78,7 @@ public sealed class MaintenanceService(
         ((RequestContext)scope.ServiceProvider.GetRequiredService<IRequestContext>())
             .SetActor(ActorType.System, "retention");
 
-        // Retention is per partner. Few partners, so one query each keeps it simple.
+        // Retention is per partner.
         var now = clock.GetUtcNow();
         var partners = await db.Partners.AsNoTracking()
             .Select(p => new { p.Id, p.ImageRetentionDays })
@@ -89,9 +89,9 @@ public sealed class MaintenanceService(
         {
             var cutoff = now.AddDays(-partner.ImageRetentionDays);
             sessions.AddRange(await db.Sessions
-                .Include(s => s.Artifacts)
+                .Include(s => s.UploadedFiles)
                 .Where(s => s.PartnerId == partner.Id && s.CompletedAt != null && s.CompletedAt < cutoff
-                            && s.Artifacts.Any(a => a.Status != ArtifactStatus.Purged))
+                            && s.UploadedFiles.Any(a => a.Status != UploadedFileStatus.Purged))
                 .OrderBy(s => s.CompletedAt)
                 .Take(50)
                 .ToListAsync(ct));
@@ -100,11 +100,11 @@ public sealed class MaintenanceService(
         var purged = 0;
         foreach (var session in sessions)
         {
-            foreach (var artifact in session.Artifacts.Where(a => a.Status != ArtifactStatus.Purged))
+            foreach (var uploadedFile in session.UploadedFiles.Where(a => a.Status != UploadedFileStatus.Purged))
             {
-                await storage.DeleteAsync(artifact.StorageKey, ct); // Deleting a missing key is fine.
-                artifact.MarkPurged(clock.GetUtcNow());
-                session.Record(AuditEventTypes.ArtifactPurged, new { artifactId = artifact.Id, reason = "retention_policy" });
+                await storage.DeleteAsync(uploadedFile.StorageKey, ct); // Deleting a missing key is fine.
+                uploadedFile.MarkPurged(clock.GetUtcNow());
+                session.Record(AuditEventTypes.UploadPurged, new { uploadedFileId = uploadedFile.Id, reason = "retention_policy" });
                 purged++;
             }
         }

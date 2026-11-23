@@ -13,7 +13,7 @@ public sealed class ProviderResilienceOptions
     public int CircuitBreakSeconds { get; set; } = 30;
 }
 
-// Timeout and circuit breaker per vendor. No retries here: the job queue retries, which survives a crash.
+// Timeout and circuit breaker per vendor. No retries here; the job queue retries.
 public static class ProviderResilience
 {
     public static ResiliencePipeline Build(string provider, ProviderResilienceOptions o) =>
@@ -29,7 +29,7 @@ public static class ProviderResilience
             .AddTimeout(TimeSpan.FromSeconds(o.TimeoutSeconds))
             .Build();
 
-    /// <summary>Turns timeouts and open circuits into <see cref="TransientProviderException"/>.</summary>
+    // Turns timeouts and open circuits into TransientProviderException.
     public static async Task<T> ExecuteAsync<T>(this ResiliencePipeline pipeline, string provider,
         Func<CancellationToken, Task<T>> call, CancellationToken ct)
     {

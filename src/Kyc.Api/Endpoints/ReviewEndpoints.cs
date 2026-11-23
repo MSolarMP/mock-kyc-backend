@@ -16,10 +16,8 @@ using Microsoft.Extensions.Options;
 
 namespace Kyc.Api.Endpoints;
 
-/// <summary>
-/// Manual review API, called by the partner's back office for one of its staff. The reviewer's staff id (not email)
-/// comes in <c>X-Reviewer-Id</c>, and every decision and view of personal data is audited against it.
-/// </summary>
+// Manual review API, called by the partner's back office for one of its staff. The reviewer's staff id (not
+// email) comes in X-Reviewer-Id, and every decision and view of personal data is audited against it.
 public static partial class ReviewEndpoints
 {
     public const string ReviewerHeader = "X-Reviewer-Id";
@@ -40,7 +38,7 @@ public static partial class ReviewEndpoints
         group.MapPost("/{sessionId:guid}/decision", Decide).WithSummary("Approve or reject a session under manual review");
     }
 
-    /// <summary>Audit rows record "reviewer:&lt;id&gt; via partner:&lt;id&gt;".</summary>
+    // Audit rows record "reviewer:<id> via partner:<id>".
     private static async ValueTask<object?> RequireReviewer(EndpointFilterInvocationContext ctx, EndpointFilterDelegate next)
     {
         var http = ctx.HttpContext;
@@ -92,9 +90,9 @@ public static partial class ReviewEndpoints
         }
 
         var ttl = TimeSpan.FromSeconds(storageOptions.Value.DownloadUrlTtlSeconds);
-        var images = new List<ArtifactLink>();
-        foreach (var a in session.Artifacts.Where(a => a.Status == ArtifactStatus.Uploaded))
-            images.Add(new ArtifactLink(a.Id, a.Type, (await storage.CreateDownloadUrlAsync(a.StorageKey, ttl)).ToString(),
+        var images = new List<UploadedFileLink>();
+        foreach (var a in session.UploadedFiles.Where(a => a.Status == UploadedFileStatus.Uploaded))
+            images.Add(new UploadedFileLink(a.Id, a.Type, (await storage.CreateDownloadUrlAsync(a.StorageKey, ttl)).ToString(),
                 now.Add(ttl)));
 
         var related = session.DocumentNumberHash is null
@@ -106,9 +104,9 @@ public static partial class ReviewEndpoints
                 .Select(s => new RelatedSessionView(s.Id, s.Status, s.CreatedAt))
                 .ToListAsync(ct);
 
-        session.Record(AuditEventTypes.ArtifactsViewedByReviewer, new
+        session.Record(AuditEventTypes.UploadsViewedByReviewer, new
         {
-            artifactIds = images.Select(i => i.ArtifactId),
+            uploadedFileIds = images.Select(i => i.UploadedFileId),
             identityRevealed = identity is not null,
         });
         await db.SaveChangesAsync(ct);

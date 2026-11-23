@@ -15,7 +15,7 @@ namespace Kyc.Domain;
 //
 //   Created / AwaitingSelfie ──timeout──▶ Expired
 //
-// Only states waiting on the customer can expire, so a slow vendor never costs a customer their progress.
+// Only states waiting on the customer can expire.
 public static class SessionStateMachine
 {
     private static readonly Dictionary<SessionStatus, SessionStatus[]> Allowed = new()

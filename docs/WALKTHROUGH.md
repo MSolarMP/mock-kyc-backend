@@ -84,11 +84,11 @@ flowchart TB
 | **`src/Kyc.Domain`** | |
 | `VerificationSession.cs` | The aggregate. Every status change and audit event goes through it. |
 | `SessionStateMachine.cs` | The table of allowed status changes. |
-| `Entities.cs` | `Artifact`, `ProviderCheck`, `Decision`, `HandoffToken`, `SessionAccessToken`, `AuditEvent`, `WorkflowJob`. |
+| `Artifact.cs`, `ProviderCheck.cs`, `Decision.cs`, `HandoffToken.cs`, `SessionAccessToken.cs`, `AuditEvent.cs`, `WorkflowJob.cs` | The data entities, one per file. |
 | `Partner.cs` | Tenants and their hashed API keys. |
 | `Decisioning/DecisionEngine.cs` | Pure function: check results + risk signals → outcome. Also `ReasonCodes`. |
 | `Workflow/WorkflowRules.cs` | After a check, what next (continue / recapture / decide), and retry backoff. |
-| `Enums.cs`, `DomainExceptions.cs`, `AuditEventTypes.cs` | Statuses, errors, audit event names. |
+| one file per enum (`SessionStatus.cs`, `CheckOutcome.cs`, …), `DomainExceptions.cs`, `AuditEventTypes.cs` | Statuses, errors, audit event names. |
 | **`src/Kyc.Infrastructure`** | |
 | `DependencyInjection.cs` | Registers everything. Picks the vendor per capability. |
 | `Persistence/KycDbContext.cs` | EF model, indexes, and `SaveChangesAsync`, which turns domain events into audit rows. |
@@ -111,7 +111,7 @@ flowchart TB
 | `Endpoints/PartnerEndpoints.cs` | Create session, get session, get audit trail. |
 | `Endpoints/ClientEndpoints.cs` | Customer device: status, QR handoff, redeem, uploads. |
 | `Endpoints/ReviewEndpoints.cs` | Review queue, open case, decide. |
-| `Contracts/Contracts.cs` | Request/response records and the `NextAction` mapping. |
+| `Contracts/PartnerContracts.cs`, `ClientContracts.cs`, `ReviewContracts.cs`, `SessionMapping.cs` | Request/response records, split by audience, and the `NextAction` mapping. |
 | `Infrastructure/Middleware.cs` | Correlation id middleware and exception → problem+json mapping. |
 | **`tests/`** | Unit tests (domain, no I/O) and integration tests (real Postgres + S3 in containers). |
 | **`scripts/demo.ps1`** | Drives every scenario end to end over HTTP. |
@@ -351,7 +351,9 @@ This is where the workflow starts.
 1. Find the artifact in this session. If it's already `Uploaded`, return 202 again (safe to retry).
 2. `GetMetadataAsync` asks S3 whether the object exists and checks the size and content type. If not:
    422 `upload_not_found` / `upload_size_mismatch` / `upload_type_mismatch`.
-3. `artifact.MarkUploaded`, record `artifact.uploaded`.
+3. **Seal the bytes**: `CopyAsync` copies the object to a key the client was never given an upload URL for,
+   `artifact.MarkUploaded` points the artifact at that sealed key, and the original upload key is dropped. Record
+   `artifact.uploaded`.
 4. `session.SubmitArtifact` increments the attempt counter (max 3 each; 409 `attempts_exhausted` after that) and
    moves `Created → DocumentSubmitted` or `AwaitingSelfie → SelfieSubmitted`.
 5. **Enqueue a job**: `ValidateDocument` for a document, `CheckLiveness` for a selfie.
@@ -824,6 +826,10 @@ The client declares hash A but uploads bytes with hash B. `complete` only checks
 `ARTIFACT_INTEGRITY_MISMATCH` plus `artifact.integrity_failed`. **The vendor never sees the file.** This counts as
 unreadable, so the customer is asked to recapture.
 
+`complete` also **seals** the bytes: it copies the object to a key the client was never given an upload URL for and
+points the artifact at it, so a later overwrite of the upload URL can't change what a vendor or reviewer reads.
+`VerifyIntegrityAsync` runs before every vendor step — document, liveness and face match — not just once.
+
 ### 14.13 Customer walks away
 
 Nobody uploads for 24 h. `GET /client/session` already shows `EXPIRED` (lazy check), any upload or handoff call gets
@@ -907,7 +913,7 @@ Modifiers you'll see on top of these:
 
 **Where:**
 - `VerificationSession` (`VerificationSession.cs`);
-- `Artifact`, `ProviderCheck`, `Decision`, `HandoffToken`, `SessionAccessToken`, `AuditEvent`, `WorkflowJob` (`Entities.cs`);
+- `Artifact`, `ProviderCheck`, `Decision`, `HandoffToken`, `SessionAccessToken`, `AuditEvent`, `WorkflowJob` (one file per entity);
 - `Partner`, `PartnerApiKey` (`Partner.cs`);
 - `KycDbContext`.
 
@@ -1047,7 +1053,7 @@ That one line gives you:
 `DependencyInjection.cs` uses `with` to merge the vendor's thresholds into `DecisionPolicy`.
 
 **Where:**
-- **API DTOs** (`Contracts.cs`): `CreateSessionRequest`, `SessionView`, `ClientSessionView`, ... These are your
+- **API DTOs** (`Contracts/`): `CreateSessionRequest`, `SessionView`, `ClientSessionView`, ... These are your
   NestJS DTO classes.
 - **Vendor contracts** (`ProviderContracts.cs`): `ProviderRequest`, `ProviderResult`, `DocumentResult`,
   `ExtractedIdentity`.
@@ -1086,7 +1092,7 @@ NestJS comparison: injecting by an abstract class or a custom token instead of a
 
 ### 17.8 `enum`: a fixed list of named values
 
-`SessionStatus`, `CheckOutcome`, `DecisionOutcome`, `JobType`, ... (`Enums.cs`), plus `NextStep` in `WorkflowRules.cs`. They're stored in Postgres **as
+`SessionStatus`, `CheckOutcome`, `DecisionOutcome`, `JobType`, ... (one file per enum), plus `NextStep` in `WorkflowRules.cs`. They're stored in Postgres **as
 strings** (configured in `KycDbContext.ConfigureConventions`), so `SELECT status FROM verification_sessions` reads
 `ManualReview`, not `5`.
 

@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Kyc.Infrastructure.Workflow;
 
-public sealed record ArtifactJobPayload(Guid ArtifactId);
+public sealed record UploadedFileJobPayload(Guid UploadedFileId);
 public sealed record EmptyPayload;
 
 public static class JobQueue

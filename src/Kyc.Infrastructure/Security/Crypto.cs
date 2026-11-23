@@ -8,11 +8,11 @@ public sealed class SecurityOptions
 {
     public const string Section = "Security";
 
-    /// <summary>Base64 256-bit key. Comes from a KMS in production.</summary>
+    // Base64 256-bit key. Comes from a KMS in production.
     public string FieldEncryptionKey { get; set; } = "";
     public byte KeyId { get; set; } = 1;
 
-    /// <summary>Base64 HMAC key for identifiers. Separate from the encryption key.</summary>
+    // Base64 HMAC key for identifiers. Separate from the encryption key.
     public string IdentifierHmacKey { get; set; } = "";
 }
 
@@ -29,7 +29,7 @@ public static class Tokens
         Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }
 
-// AES-256-GCM for PII, on top of disk encryption, so a leaked backup has no plaintext.
+// AES-256-GCM for PII, on top of disk encryption.
 // Format: [keyId:1][nonce:12][tag:16][ciphertext]. Key id lets old rows decrypt after rotation.
 public sealed class FieldProtector
 {
@@ -66,7 +66,7 @@ public sealed class FieldProtector
     }
 }
 
-// HMAC for document numbers. Keyed because ID numbers are easy to brute-force from a plain hash.
+// Keyed HMAC for document numbers.
 public sealed class IdentifierHasher(IOptions<SecurityOptions> options)
 {
     private readonly byte[] _key = Convert.FromBase64String(options.Value.IdentifierHmacKey);

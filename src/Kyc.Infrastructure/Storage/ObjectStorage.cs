@@ -9,10 +9,10 @@ namespace Kyc.Infrastructure.Storage;
 public sealed class StorageOptions
 {
     public const string Section = "Storage";
-    public string Bucket { get; set; } = "kyc-artifacts";
-    /// <summary>Endpoint used by our services, e.g. http://s3:8333 inside docker.</summary>
+    public string Bucket { get; set; } = "kyc-uploads";
+    // Endpoint used by our services, e.g. http://s3:8333 inside docker.
     public string ServiceUrl { get; set; } = "http://localhost:9000";
-    /// <summary>Endpoint clients use. Pre-signed URLs are signed for this host since the signature covers Host.</summary>
+    // Endpoint clients use. Pre-signed URLs are signed for this host.
     public string PublicServiceUrl { get; set; } = "http://localhost:9000";
     public string AccessKey { get; set; } = "";
     public string SecretKey { get; set; } = "";
@@ -29,6 +29,8 @@ public interface IObjectStorage
     Task<Uri> CreateUploadUrlAsync(string key, string contentType, TimeSpan ttl);
     Task<Uri> CreateDownloadUrlAsync(string key, TimeSpan ttl);
     Task<ObjectMetadata?> GetMetadataAsync(string key, CancellationToken ct);
+    // Server-side copy. Used to seal an upload under a key the client has no URL for.
+    Task CopyAsync(string sourceKey, string destinationKey, CancellationToken ct);
     Task<Stream> OpenReadAsync(string key, CancellationToken ct);
     Task DeleteAsync(string key, CancellationToken ct);
     Task EnsureBucketAsync(CancellationToken ct);
@@ -59,7 +61,7 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
 
     public async Task<Uri> CreateUploadUrlAsync(string key, string contentType, TimeSpan ttl)
     {
-        // Content type is signed, so the client can't upload a different type.
+        // Content type is signed into the URL.
         var url = await _public.GetPreSignedURLAsync(new GetPreSignedUrlRequest
         {
             BucketName = _options.Bucket,
@@ -103,6 +105,15 @@ public sealed class S3ObjectStorage : IObjectStorage, IDisposable
         var response = await _internal.GetObjectAsync(_options.Bucket, key, ct);
         return response.ResponseStream;
     }
+
+    public Task CopyAsync(string sourceKey, string destinationKey, CancellationToken ct) =>
+        _internal.CopyObjectAsync(new CopyObjectRequest
+        {
+            SourceBucket = _options.Bucket,
+            SourceKey = sourceKey,
+            DestinationBucket = _options.Bucket,
+            DestinationKey = destinationKey,
+        }, ct);
 
     public Task DeleteAsync(string key, CancellationToken ct) =>
         _internal.DeleteObjectAsync(_options.Bucket, key, ct);

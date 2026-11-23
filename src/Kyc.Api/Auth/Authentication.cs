@@ -19,7 +19,6 @@ public static class AuthSchemes
 
 public static class Policies
 {
-    /// <summary>Partner system, or its back office acting for a reviewer.</summary>
     public const string Partner = "partner";
     public const string Customer = "customer";
 }
@@ -32,7 +31,7 @@ public static class KycClaims
     public const string Channel = "kyc:channel";
 }
 
-/// <summary>Partner API key auth. Keys are stored hashed and looked up by hash, so plaintext is never kept.</summary>
+// Partner API key auth. Keys are stored hashed and looked up by hash.
 public sealed class ApiKeyAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
@@ -65,7 +64,7 @@ public sealed class ApiKeyAuthenticationHandler(
     }
 }
 
-/// <summary>Customer bearer token bound to one session. The session id comes from the token, never the URL.</summary>
+//Customer bearer token bound to one session.
 public sealed class SessionTokenAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,

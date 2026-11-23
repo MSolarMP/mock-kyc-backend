@@ -136,7 +136,7 @@ public sealed class KycApiFixture : IAsyncLifetime
     public async Task<HttpResponseMessage> UploadAsync(string token, string type, byte[] bytes, bool skipPut = false)
     {
         using var customer = Customer(token);
-        var slot = await customer.PostAsJsonAsync("/v1/client/session/artifacts", new
+        var slot = await customer.PostAsJsonAsync("/v1/client/session/uploads", new
         {
             type,
             contentType = "image/jpeg",
@@ -153,7 +153,7 @@ public sealed class KycApiFixture : IAsyncLifetime
             put.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
             (await raw.PutAsync(s.GetProperty("uploadUrl").GetString(), put)).EnsureSuccessStatusCode();
         }
-        return await customer.PostAsync($"/v1/client/session/artifacts/{s.GetProperty("artifactId").GetGuid()}/complete", null);
+        return await customer.PostAsync($"/v1/client/session/uploads/{s.GetProperty("uploadedFileId").GetGuid()}/complete", null);
     }
 
     public async Task<JsonElement> WaitForAsync(string token, Func<JsonElement, bool> done, int timeoutSeconds = 30)

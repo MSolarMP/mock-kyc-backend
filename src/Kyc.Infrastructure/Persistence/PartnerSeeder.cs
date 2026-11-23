@@ -14,7 +14,7 @@ public sealed class PartnerSeedOptions
     {
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
-        /// <summary>Plaintext key, dev/test only.</summary>
+        // Plaintext key, dev/test only.
         public string ApiKey { get; set; } = "";
         public int ImageRetentionDays { get; set; } = 30;
         public string? WebhookUrl { get; set; }

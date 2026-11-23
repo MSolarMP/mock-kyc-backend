@@ -15,7 +15,7 @@ using Npgsql;
 
 namespace Kyc.Api.Endpoints;
 
-/// <summary>Server-to-server API for the partner's onboarding system.</summary>
+// Server-to-server API for the partner's onboarding system.
 public static class PartnerEndpoints
 {
     public static void MapPartnerEndpoints(this IEndpointRouteBuilder app)
@@ -124,13 +124,13 @@ public static class PartnerEndpoints
             e.CorrelationId, e.OccurredAt, JsonDocument.Parse(e.Data).RootElement)));
     }
 
-    /// <summary>Another partner's session returns 404, not 403, so ids can't be probed.</summary>
+    // Another partner's session returns 404, not 403.
     internal static async Task<VerificationSession> LoadVisibleSession(KycDbContext db, ClaimsPrincipal user,
         Guid sessionId, CancellationToken ct, bool includeChildren = true)
     {
         var query = db.Sessions.AsQueryable();
         if (includeChildren)
-            query = query.Include(s => s.Artifacts).Include(s => s.Checks).Include(s => s.Decisions).AsSplitQuery();
+            query = query.Include(s => s.UploadedFiles).Include(s => s.Checks).Include(s => s.Decisions).AsSplitQuery();
         var session = await query.SingleOrDefaultAsync(s => s.Id == sessionId, ct);
         if (session is null || session.PartnerId != user.PartnerId())
             throw new NotFoundException("Verification session");

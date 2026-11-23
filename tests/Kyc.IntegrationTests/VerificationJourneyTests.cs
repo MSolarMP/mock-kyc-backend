@@ -1,5 +1,7 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Kyc.Domain;
 using Kyc.Infrastructure.Persistence;
@@ -13,6 +15,58 @@ namespace Kyc.IntegrationTests;
 public sealed class VerificationJourneyTests(KycApiFixture fx)
 {
     private static readonly JsonSerializerOptions Json = KycApiFixture.Json;
+
+    // Overwriting the selfie on its upload URL after completion shouldn't change what face-match sees:
+    // completion seals the bytes under a key no upload URL points at, so the later overwrite is inert.
+    [Fact]
+    public async Task Overwriting_an_upload_after_completion_cannot_change_what_a_vendor_sees()
+    {
+        var (sessionId, token) = await fx.CreateSessionAsync();
+
+        Assert.Equal(HttpStatusCode.Accepted,
+            (await fx.UploadAsync(token, "IdentityDocument", KycApiFixture.Image())).StatusCode);
+        await fx.WaitForAsync(token, KycApiFixture.NextAction("UPLOAD_SELFIE"));
+
+        // Declare and upload a clean selfie, keeping the upload URL for the swap attempt.
+        using var customer = fx.Customer(token);
+        var clean = KycApiFixture.Image();
+        var slot = await customer.PostAsJsonAsync("/v1/client/session/uploads", new
+        {
+            type = "Selfie",
+            contentType = "image/jpeg",
+            sizeBytes = clean.Length,
+            sha256 = Convert.ToHexStringLower(SHA256.HashData(clean)),
+        });
+        slot.EnsureSuccessStatusCode();
+        var declared = await slot.Content.ReadFromJsonAsync<JsonElement>(Json);
+        var uploadUrl = declared.GetProperty("uploadUrl").GetString()!;
+        var uploadedFileId = declared.GetProperty("uploadedFileId").GetGuid();
+
+        async Task PutAsync(byte[] bytes)
+        {
+            using var raw = new HttpClient();
+            var put = new ByteArrayContent(bytes);
+            put.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+            (await raw.PutAsync(uploadUrl, put)).EnsureSuccessStatusCode();
+        }
+
+        await PutAsync(clean);
+        (await customer.PostAsync($"/v1/client/session/uploads/{uploadedFileId}/complete", null))
+            .EnsureSuccessStatusCode();
+
+        // Attacker reuses the still-live upload URL to swap in a face that would fail the match.
+        await PutAsync(KycApiFixture.Image("FACE_MISMATCH"));
+
+        // The pipeline reads the sealed clean selfie, so the swap is inert and the session is approved.
+        var final = await fx.WaitForAsync(token, KycApiFixture.NextAction("COMPLETE"));
+        Assert.Equal("Approved", final.GetProperty("status").GetString());
+
+        using var partner = fx.Partner();
+        var details = await partner.GetFromJsonAsync<JsonElement>($"/v1/verification-sessions/{sessionId}", Json);
+        var face = details.GetProperty("checks").EnumerateArray()
+            .Single(c => c.GetProperty("type").GetString() == "FaceMatch");
+        Assert.Equal("Passed", face.GetProperty("outcome").GetString());
+    }
 
     [Fact]
     public async Task Full_journey_with_device_handoff_is_approved_and_audited()
@@ -155,7 +209,7 @@ public sealed class VerificationJourneyTests(KycApiFixture fx)
     {
         var (_, token) = await fx.CreateSessionAsync();
         using var customer = fx.Customer(token);
-        var res = await customer.PostAsJsonAsync("/v1/client/session/artifacts", new
+        var res = await customer.PostAsJsonAsync("/v1/client/session/uploads", new
         {
             type = "Selfie",
             contentType = "image/jpeg",
@@ -163,7 +217,7 @@ public sealed class VerificationJourneyTests(KycApiFixture fx)
             sha256 = new string('a', 64),
         });
         Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
-        Assert.Contains("unexpected_artifact", await res.Content.ReadAsStringAsync());
+        Assert.Contains("unexpected_upload", await res.Content.ReadAsStringAsync());
     }
 
     [Fact]

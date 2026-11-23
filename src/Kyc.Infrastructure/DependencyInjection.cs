@@ -25,7 +25,7 @@ public static class DependencyInjection
         services.AddScoped<IRequestContext>(sp => sp.GetRequiredService<RequestContext>());
 
         services.AddDbContext<KycDbContext>(o => o
-            // No EnableRetryOnFailure: it blocks explicit transactions. Jobs retry anyway, and the API returns 503.
+            // No EnableRetryOnFailure: it blocks explicit transactions.
             .UseNpgsql(config.GetConnectionString("Kyc"))
             .UseSnakeCaseNamingConvention());
 

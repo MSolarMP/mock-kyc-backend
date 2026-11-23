@@ -2,7 +2,7 @@ using Kyc.Domain;
 
 namespace Kyc.Infrastructure.Common;
 
-// Current actor and correlation id. Set by API middleware or the job processor; stamped on every audit event.
+// Current actor and correlation id. Set by API middleware or the job processor.
 public interface IRequestContext
 {
     ActorType ActorType { get; }

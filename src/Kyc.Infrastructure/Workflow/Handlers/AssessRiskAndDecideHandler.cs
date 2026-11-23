@@ -70,15 +70,15 @@ public sealed class AssessRiskAndDecideHandler(
             ? 0
             : await db.Sessions.CountAsync(o => o.CreatedIp == s.CreatedIp && o.CreatedAt > now.AddHours(-24), ct);
 
-        var selfieHash = s.Artifacts
-            .Where(a => a.Type == ArtifactType.Selfie && a.Status == ArtifactStatus.Uploaded)
+        var selfieHash = s.UploadedFiles
+            .Where(a => a.Type == UploadedFileType.Selfie && a.Status == UploadedFileStatus.Uploaded)
             .OrderByDescending(a => a.UploadedAt)
             .Select(a => a.DeclaredSha256)
             .FirstOrDefault();
         var selfieReuse = selfieHash is null
             ? 0
-            : await db.Artifacts.CountAsync(a => a.DeclaredSha256 == selfieHash && a.SessionId != s.Id
-                                                 && a.Type == ArtifactType.Selfie, ct);
+            : await db.UploadedFiles.CountAsync(a => a.DeclaredSha256 == selfieHash && a.SessionId != s.Id
+                                                 && a.Type == UploadedFileType.Selfie, ct);
 
         var expired = false;
         if (s.ExtractedIdentityEncrypted is { } encrypted)

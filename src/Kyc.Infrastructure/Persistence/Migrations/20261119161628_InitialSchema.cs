@@ -172,7 +172,7 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "artifacts",
+                name: "uploaded_files",
                 columns: table => new
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
@@ -191,9 +191,9 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("pk_artifacts", x => x.id);
+                    table.PrimaryKey("pk_uploaded_files", x => x.id);
                     table.ForeignKey(
-                        name: "fk_artifacts_verification_sessions_session_id",
+                        name: "fk_uploaded_files_verification_sessions_session_id",
                         column: x => x.session_id,
                         principalTable: "verification_sessions",
                         principalColumn: "id",
@@ -232,7 +232,7 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 {
                     id = table.Column<Guid>(type: "uuid", nullable: false),
                     session_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    artifact_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    uploaded_file_id = table.Column<Guid>(type: "uuid", nullable: true),
                     type = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
                     provider = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
                     provider_reference = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
@@ -255,18 +255,18 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "ix_artifacts_declared_sha256",
-                table: "artifacts",
+                name: "ix_uploaded_files_declared_sha256",
+                table: "uploaded_files",
                 column: "declared_sha256");
 
             migrationBuilder.CreateIndex(
-                name: "ix_artifacts_session_id",
-                table: "artifacts",
+                name: "ix_uploaded_files_session_id",
+                table: "uploaded_files",
                 column: "session_id");
 
             migrationBuilder.CreateIndex(
-                name: "ix_artifacts_status_uploaded_at",
-                table: "artifacts",
+                name: "ix_uploaded_files_status_uploaded_at",
+                table: "uploaded_files",
                 columns: new[] { "status", "uploaded_at" });
 
             migrationBuilder.CreateIndex(
@@ -307,9 +307,9 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 column: "partner_id");
 
             migrationBuilder.CreateIndex(
-                name: "ix_provider_checks_artifact_id_type",
+                name: "ix_provider_checks_uploaded_file_id_type",
                 table: "provider_checks",
-                columns: new[] { "artifact_id", "type" },
+                columns: new[] { "uploaded_file_id", "type" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
@@ -396,7 +396,7 @@ namespace Kyc.Infrastructure.Persistence.Migrations
                 DROP FUNCTION IF EXISTS audit_events_block_mutation();
                 """);
             migrationBuilder.DropTable(
-                name: "artifacts");
+                name: "uploaded_files");
 
             migrationBuilder.DropTable(
                 name: "audit_events");

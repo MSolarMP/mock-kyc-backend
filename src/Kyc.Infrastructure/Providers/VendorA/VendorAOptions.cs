@@ -9,10 +9,10 @@ public sealed class VendorAOptions
     public string BaseUrl { get; set; } = "https://api.vendor-a.example/v3";
     public string ApiKey { get; set; } = "";
 
-    /// <summary>Fake latency so queue lag shows up in demos.</summary>
+    // Fake latency so queue lag shows up in demos.
     public int SandboxLatencyMs { get; set; } = 300;
 
-    // Thresholds live with the vendor: another vendor's 0.85 means something else.
+    // Thresholds live with the vendor.
     public VendorAThresholds Thresholds { get; set; } = new();
 }
 

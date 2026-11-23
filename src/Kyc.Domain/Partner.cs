@@ -1,6 +1,6 @@
 namespace Kyc.Domain;
 
-// A tenant (bank or fintech). Only sees its own sessions.
+// A tenant (bank or fintech).
 public class Partner
 {
     private Partner() { } // EF
@@ -10,7 +10,7 @@ public class Partner
     public string Name { get; private set; } = default!;
     public bool IsActive { get; private set; }
 
-    // Days after the decision before images are purged. Per partner since the bank owns FICA retention.
+    // Days after the decision before images are purged.
     public int ImageRetentionDays { get; private set; }
 
     // Webhook delivery isn't built yet.
@@ -34,7 +34,7 @@ public class Partner
         };
     }
 
-    // Several keys allowed so they can rotate without downtime.
+    // Several keys allowed, for rotation.
     public PartnerApiKey AddApiKey(string keyHash, string keyPrefix, DateTimeOffset now)
     {
         var key = PartnerApiKey.Create(Id, keyHash, keyPrefix, now);
@@ -43,7 +43,7 @@ public class Partner
     }
 }
 
-// Only the SHA-256 hash is stored. The prefix lets support identify a key.
+// Only the SHA-256 hash is stored; the prefix identifies a key.
 public class PartnerApiKey
 {
     private PartnerApiKey() { } // EF

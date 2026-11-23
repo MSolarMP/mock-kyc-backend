@@ -188,7 +188,7 @@ Same as A6, but decide with `{ "outcome": "Rejected", "reasonCode": "DOCUMENT_MI
 | Same document, two open sessions | Session 1: doc `DOC_NUMBER=DUP1`, stop before the selfie. Session 2: doc `DOC_NUMBER=DUP1`, clean selfie | `CONCURRENT_SESSIONS_SAME_DOCUMENT` | |
 | Reused selfie | Session 1: complete normally. Session 2: clean doc, then for the selfie **don't** rerun the script; reuse the same JSON body and file | `SELFIE_REUSED` | Same photo across applicants is a classic fraud signal |
 | High IP velocity | Create 11+ sessions with the same `customer.ipAddress`, then complete one | `HIGH_IP_VELOCITY` | |
-| File swapped after upload | Declare with `"sha256": "0000…0000"` (64 zeros) but the real `sizeBytes`, then PUT the real file | `ARTIFACT_INTEGRITY_MISMATCH` on the check, plus a recapture request | `complete` succeeds; the worker re-hashes the file and catches the mismatch before any vendor sees it |
+| File swapped after upload | Declare with `"sha256": "0000…0000"` (64 zeros) but the real `sizeBytes`, then PUT the real file | `ARTIFACT_INTEGRITY_MISMATCH` on the check, plus a recapture request | `complete` succeeds; the worker re-hashes the file and catches the mismatch before any vendor sees it. After `complete` the bytes are sealed, so re-PUTting the upload URL can't swap what a vendor reads |
 
 Pass several markers like this: `-Markers DOC_TAMPERED,DOC_NUMBER=RPT1`.
 

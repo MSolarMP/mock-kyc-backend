@@ -22,7 +22,7 @@ public sealed record DecisionResult(
     int RiskScore,
     string RulesVersion);
 
-// Loaded from config so thresholds can change without a deploy.
+// Loaded from config.
 public sealed record DecisionPolicy
 {
     public decimal FaceMatchApproveThreshold { get; init; } = 0.85m;
@@ -144,5 +144,5 @@ public static class ReasonCodes
     public const string HighIpVelocity = "HIGH_IP_VELOCITY";
     public const string SelfieReused = "SELFIE_REUSED";
     public const string ProviderUnavailable = "PROVIDER_UNAVAILABLE";
-    public const string ArtifactIntegrityMismatch = "ARTIFACT_INTEGRITY_MISMATCH";
+    public const string UploadIntegrityMismatch = "UPLOAD_INTEGRITY_MISMATCH";
 }

@@ -30,34 +30,34 @@ public sealed class ValidateDocumentHandler(
 
     public async Task HandleAsync(WorkflowJob job, KycDbContext db, CancellationToken ct)
     {
-        var payload = job.ReadPayload<ArtifactJobPayload>();
+        var payload = job.ReadPayload<UploadedFileJobPayload>();
         var session = await LoadSessionAsync(db, job.SessionId, ct);
 
         // Redelivered job: the session already moved on.
         if (session is null || session.Status != SessionStatus.DocumentSubmitted
-            || session.Checks.Any(c => c.ArtifactId == payload.ArtifactId && c.Type == CheckType.DocumentValidation))
+            || session.Checks.Any(c => c.UploadedFileId == payload.UploadedFileId && c.Type == CheckType.DocumentValidation))
         {
             Logger.LogInformation("Document validation no longer applicable; skipping");
             return;
         }
 
-        var artifact = session.Artifacts.Single(a => a.Id == payload.ArtifactId);
+        var uploadedFile = session.UploadedFiles.Single(a => a.Id == payload.UploadedFileId);
         var now = Clock.GetUtcNow();
 
         CheckOutcome outcome;
-        if (!await VerifyIntegrityAsync(session, artifact, ct))
+        if (!await VerifyIntegrityAsync(session, uploadedFile, ct))
         {
             outcome = CheckOutcome.Unreadable;
-            RecordCheck(db, session, artifact.Id, CheckType.DocumentValidation, "platform", null, outcome, null,
-                [ReasonCodes.ArtifactIntegrityMismatch], job.Attempts, 0);
+            RecordCheck(db, session, uploadedFile.Id, CheckType.DocumentValidation, "platform", null, outcome, null,
+                [ReasonCodes.UploadIntegrityMismatch], job.Attempts, 0);
         }
         else
         {
             var started = Stopwatch.GetTimestamp();
-            var result = await provider.VerifyAsync(new ProviderRequest(session.Id, artifact.Id,
-                await DownloadUrlAsync(artifact), artifact.StorageKey, job.Id.ToString("N"), job.Attempts), ct);
+            var result = await provider.VerifyAsync(new ProviderRequest(session.Id, uploadedFile.Id,
+                await DownloadUrlAsync(uploadedFile), uploadedFile.StorageKey, job.Id.ToString("N"), job.Attempts), ct);
             outcome = result.Outcome;
-            RecordCheck(db, session, artifact.Id, CheckType.DocumentValidation, provider.Name, result.ProviderReference,
+            RecordCheck(db, session, uploadedFile.Id, CheckType.DocumentValidation, provider.Name, result.ProviderReference,
                 result.Outcome, result.Score, result.ReasonCodes, job.Attempts, Elapsed(started));
 
             if (result.Identity is { } identity)
@@ -77,7 +77,7 @@ public sealed class ValidateDocumentHandler(
             case NextStep.RequestRecapture:
                 session.Record(AuditEventTypes.RecaptureRequested, new
                 {
-                    type = nameof(ArtifactType.IdentityDocument),
+                    type = nameof(UploadedFileType.IdentityDocument),
                     attemptsUsed = session.DocumentAttempts,
                     attemptsAllowed = VerificationSession.MaxDocumentAttempts,
                 });

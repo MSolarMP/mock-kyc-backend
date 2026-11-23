@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Kyc.Api.Infrastructure;
 
-/// <summary>Uses the inbound X-Correlation-Id (or trace id) and carries it into logs, audit events and jobs.</summary>
+// Uses the inbound X-Correlation-Id (or trace id) and carries it into logs, audit events and jobs.
 public sealed partial class CorrelationIdMiddleware(RequestDelegate next, ILogger<CorrelationIdMiddleware> logger)
 {
     public const string Header = "X-Correlation-Id";
@@ -35,7 +35,7 @@ public sealed partial class CorrelationIdMiddleware(RequestDelegate next, ILogge
     private static string? Truncate(string s, int max) => string.IsNullOrEmpty(s) ? null : s.Length <= max ? s : s[..max];
 }
 
-/// <summary>Maps exceptions to problem+json with a stable <c>code</c>. Internal details never reach the client.</summary>
+// Maps exceptions to problem+json with a stable code. Internal details never reach the client.
 public sealed class ProblemExceptionHandler(IProblemDetailsService problems, ILogger<ProblemExceptionHandler> logger)
     : IExceptionHandler
 {

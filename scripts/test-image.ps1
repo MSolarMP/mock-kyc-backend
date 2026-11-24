@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Helper for testing uploads by hand (Swagger / requests.http). See docs/TESTING.md.
+  Helper for testing uploads by hand (Swagger / requests.http).
 
 .DESCRIPTION
   Step 1 (no -UploadUrl): writes a fake JPEG containing KYC_MOCK markers and prints the JSON body to paste into

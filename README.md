@@ -38,8 +38,8 @@ http://localhost:8080, applies migrations, and creates the bucket. `requests.htt
 ### Tests
 
 ```bash
-dotnet test tests/Kyc.UnitTests          # 47 tests: state machine, decision rules, crypto, routing
-dotnet test tests/Kyc.IntegrationTests   # 12 tests: real Postgres + S3 via Testcontainers (needs Docker)
+dotnet test tests/Kyc.UnitTests          # 59 tests: state machine, decision rules, crypto, routing
+dotnet test tests/Kyc.IntegrationTests   # 14 tests: real Postgres + S3 via Testcontainers (needs Docker)
 ```
 
 Integration tests cover the full journey, concurrent QR redemption (exactly one winner), tenant isolation,
@@ -65,7 +65,7 @@ codes leak to customers.
 
 ### Testing in Swagger
 
-**Full step-by-step guide with every outcome and error case: [`docs/TESTING.md`](docs/TESTING.md).** Quick version:
+Quick run-through (open Swagger and exercise the endpoints in order):
 
 1. Open http://localhost:8080/swagger, click **Authorize**, enter `dev-partner-key` under **ApiKey** and leave the rest empty.
 2. `POST /v1/verification-sessions` with header `Idempotency-Key: demo-0001` and body:
@@ -131,7 +131,7 @@ scripts/demo.ps1         End-to-end scenario runner
   instead of an image URL.
 - Vendors are called synchronously from workers with a timeout. Many vendors offer async webhooks (see "Next steps").
 - Session lifetime is 24 hours, handoff tokens last 5 minutes, and there are 3 document and 3 selfie attempts per session.
-- "Hundreds per day" today, "tens of thousands" later: sizing is in the architecture doc §9.
+- "Hundreds per day" today, "tens of thousands" later: sizing is in the architecture doc's scaling section.
 
 ## Trade-offs
 
